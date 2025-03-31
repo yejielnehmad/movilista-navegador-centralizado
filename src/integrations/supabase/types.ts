@@ -33,6 +33,30 @@ export type Database = {
         }
         Relationships: []
       }
+      products: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          variants: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          variants?: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          variants?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
