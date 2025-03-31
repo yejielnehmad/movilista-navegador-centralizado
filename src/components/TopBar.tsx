@@ -4,6 +4,7 @@ import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import GeminiStatusBadge from './GeminiStatusBadge';
+import { useTheme } from '@/components/ui/theme-provider';
 
 interface TopBarProps {
   onMenuToggle: () => void;

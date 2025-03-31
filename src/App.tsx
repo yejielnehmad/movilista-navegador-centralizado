@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect } from "react";
+import { ThemeProvider } from "@/components/ui/theme-provider";
 import MainLayout from "@/layouts/MainLayout";
 import Index from "@/pages/Index";
 import Products from "@/pages/Products";
@@ -37,22 +38,24 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <GeminiProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<MainLayout />}>
-                <Route index element={<Index />} />
-                <Route path="products" element={<Products />} />
-                <Route path="clients" element={<Clients />} />
-                <Route path="ai-orders" element={<AIOrders />} />
-                <Route path="orders" element={<Orders />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+        <ThemeProvider defaultTheme="light" storageKey="ventascom-theme">
+          <TooltipProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<MainLayout />}>
+                  <Route index element={<Index />} />
+                  <Route path="products" element={<Products />} />
+                  <Route path="clients" element={<Clients />} />
+                  <Route path="ai-orders" element={<AIOrders />} />
+                  <Route path="orders" element={<Orders />} />
+                  <Route path="*" element={<NotFound />} />
+                </Route>
+              </Routes>
+              <Toaster />
+              <Sonner />
+            </BrowserRouter>
+          </TooltipProvider>
+        </ThemeProvider>
       </GeminiProvider>
     </QueryClientProvider>
   );
