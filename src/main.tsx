@@ -1,6 +1,6 @@
 
+import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { StrictMode } from 'react'
 import App from './App.tsx'
 import './index.css'
 import { registerSW } from './utils/registerSW'
@@ -8,8 +8,11 @@ import { registerSW } from './utils/registerSW'
 // Registrar el service worker
 registerSW();
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error('Root element not found');
+
+createRoot(rootElement).render(
+  <React.StrictMode>
     <App />
-  </StrictMode>
+  </React.StrictMode>
 );
