@@ -15,6 +15,7 @@ import Orders from "@/pages/Orders";
 import NotFound from "@/pages/NotFound";
 import { checkSupabaseConnection } from "@/lib/supabase";
 import { GeminiProvider } from "@/contexts/GeminiContext";
+import { MessageProcessingProvider } from "@/contexts/MessageProcessingContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,24 +39,26 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <GeminiProvider>
-        <ThemeProvider defaultTheme="light" storageKey="ventascom-theme">
-          <TooltipProvider>
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<MainLayout />}>
-                  <Route index element={<Index />} />
-                  <Route path="products" element={<Products />} />
-                  <Route path="clients" element={<Clients />} />
-                  <Route path="ai-orders" element={<AIOrders />} />
-                  <Route path="orders" element={<Orders />} />
-                  <Route path="*" element={<NotFound />} />
-                </Route>
-              </Routes>
-              <Toaster />
-              <Sonner />
-            </BrowserRouter>
-          </TooltipProvider>
-        </ThemeProvider>
+        <MessageProcessingProvider>
+          <ThemeProvider defaultTheme="light" storageKey="ventascom-theme">
+            <TooltipProvider>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<MainLayout />}>
+                    <Route index element={<Index />} />
+                    <Route path="products" element={<Products />} />
+                    <Route path="clients" element={<Clients />} />
+                    <Route path="ai-orders" element={<AIOrders />} />
+                    <Route path="orders" element={<Orders />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Route>
+                </Routes>
+                <Toaster />
+                <Sonner />
+              </BrowserRouter>
+            </TooltipProvider>
+          </ThemeProvider>
+        </MessageProcessingProvider>
       </GeminiProvider>
     </QueryClientProvider>
   );

@@ -37,7 +37,16 @@ export interface OrderItem {
   issues: string[];
 }
 
+// Grouped orders by client
+export interface GroupedOrderItems {
+  clientName: string;
+  clientMatch: Client | null;
+  items: OrderItem[];
+  status: 'valid' | 'warning' | 'error';
+}
+
 export interface ProcessedOrder {
   rawText: string;
   items: OrderItem[];
+  groupedItems?: GroupedOrderItems[];
 }
