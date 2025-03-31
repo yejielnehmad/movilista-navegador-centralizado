@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { useGemini } from '@/contexts/GeminiContext';
 import { GeminiConnectionStatus } from '@/services/gemini';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Send, AlertTriangle, Check } from 'lucide-react';
+import { Loader2, Send, AlertTriangle, Check, Save } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
   Accordion, 
@@ -20,6 +19,8 @@ import { parseOrderMessage, validateOrderItems } from '@/utils/orderParser';
 import { OrderItem, ProcessedOrder } from '@/types/orders';
 import OrderCard from '@/components/orders/OrderCard';
 import { toast } from 'sonner';
+import { saveOrder } from '@/services/orderService';
+import { useNavigate } from 'react-router-dom';
 
 const AIOrders: React.FC = () => {
   const { generateContent, connectionStatus } = useGemini();
@@ -28,6 +29,8 @@ const AIOrders: React.FC = () => {
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [parsedOrders, setParsedOrders] = useState<OrderItem[]>([]);
   const [confirmedOrders, setConfirmedOrders] = useState<OrderItem[]>([]);
+  const [savingOrders, setSavingOrders] = useState<boolean>(false);
+  const navigate = useNavigate();
 
   // Fetch products and clients data
   const productsQuery = useQuery({
@@ -136,6 +139,53 @@ const AIOrders: React.FC = () => {
     );
     
     toast.success("Order confirmed");
+  };
+
+  // Save confirmed orders to database
+  const handleSaveOrders = async () => {
+    if (confirmedOrders.length === 0) {
+      toast.error("No hay pedidos para guardar");
+      return;
+    }
+
+    setSavingOrders(true);
+
+    try {
+      // Group orders by client
+      const ordersByClient = new Map<string, OrderItem[]>();
+      
+      confirmedOrders.forEach(order => {
+        if (!order.clientMatch?.id) {
+          toast.error(`Error: Cliente no disponible para ${order.clientMatch?.name || order.clientName}`);
+          return;
+        }
+
+        const clientId = order.clientMatch.id;
+        if (!ordersByClient.has(clientId)) {
+          ordersByClient.set(clientId, []);
+        }
+        ordersByClient.get(clientId)?.push(order);
+      });
+
+      // Save each client's orders
+      const savePromises: Promise<any>[] = [];
+      
+      ordersByClient.forEach((items, clientId) => {
+        savePromises.push(saveOrder(clientId, items));
+      });
+
+      await Promise.all(savePromises);
+      setConfirmedOrders([]);
+      toast.success("Pedidos guardados con éxito");
+      
+      // Navigate to orders page
+      navigate('/orders');
+    } catch (error) {
+      console.error("Error saving orders:", error);
+      toast.error("Error al guardar los pedidos");
+    } finally {
+      setSavingOrders(false);
+    }
   };
 
   return (
@@ -284,8 +334,22 @@ const AIOrders: React.FC = () => {
             >
               Limpiar
             </Button>
-            <Button>
-              Finalizar y Enviar Pedidos
+            <Button 
+              onClick={handleSaveOrders}
+              disabled={savingOrders}
+              className="flex items-center gap-2"
+            >
+              {savingOrders ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Guardar Pedidos
+                </>
+              )}
             </Button>
           </CardFooter>
         </Card>

@@ -3,6 +3,7 @@ import { Product, ProductVariant, ProductWithVariants } from "@/services/product
 import type { Database } from "@/integrations/supabase/types";
 
 export type Client = Database["public"]["Tables"]["clients"]["Row"];
+export type Order = Database["public"]["Tables"]["orders"]["Row"];
 
 export interface OrderItem {
   clientName: string;
