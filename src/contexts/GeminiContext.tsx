@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { geminiClient, GeminiConnectionStatus } from '@/services/gemini';
 
 interface GeminiContextType {
@@ -9,6 +9,7 @@ interface GeminiContextType {
     maxOutputTokens?: number;
   }) => Promise<string | null>;
   connectionStatus: GeminiConnectionStatus;
+  lastError: string | null;
   checkConnection: () => Promise<boolean>;
 }
 
@@ -18,11 +19,15 @@ export function GeminiProvider({ children }: { children: React.ReactNode }) {
   const [connectionStatus, setConnectionStatus] = useState<GeminiConnectionStatus>(
     geminiClient.getConnectionStatus()
   );
+  const [lastError, setLastError] = useState<string | null>(
+    geminiClient.getLastError()
+  );
 
   useEffect(() => {
     // Subscribe to connection status updates
     const unsubscribe = geminiClient.onConnectionStatusChange((status) => {
       setConnectionStatus(status);
+      setLastError(geminiClient.getLastError());
     });
 
     // Only check connection once on mount
@@ -37,6 +42,7 @@ export function GeminiProvider({ children }: { children: React.ReactNode }) {
   const value = {
     generateContent: geminiClient.generateContent.bind(geminiClient),
     connectionStatus,
+    lastError,
     checkConnection: geminiClient.checkConnection.bind(geminiClient),
   };
 

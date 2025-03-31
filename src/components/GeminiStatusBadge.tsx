@@ -13,7 +13,7 @@ interface GeminiStatusBadgeProps {
 }
 
 const GeminiStatusBadge: React.FC<GeminiStatusBadgeProps> = ({ className }) => {
-  const { connectionStatus, checkConnection } = useGemini();
+  const { connectionStatus, checkConnection, lastError } = useGemini();
   const [isCheckingConnection, setIsCheckingConnection] = React.useState(false);
 
   // Define badge content based on connection status
@@ -38,7 +38,7 @@ const GeminiStatusBadge: React.FC<GeminiStatusBadgeProps> = ({ className }) => {
           icon: <AlertCircle className="h-3.5 w-3.5 mr-1" />,
           text: 'API Error',
           variant: 'destructive' as const,
-          tooltipText: 'Failed to connect to Gemini AI'
+          tooltipText: lastError ? `Error: ${lastError}` : 'Failed to connect to Gemini AI'
         };
       case GeminiConnectionStatus.DISCONNECTED:
       default:
@@ -61,7 +61,7 @@ const GeminiStatusBadge: React.FC<GeminiStatusBadgeProps> = ({ className }) => {
       if (result) {
         toast.success("Successfully connected to Gemini API");
       } else {
-        toast.error("Failed to connect to Gemini API");
+        toast.error(`Failed to connect to Gemini API: ${lastError || 'Unknown error'}`);
       }
     } catch (error) {
       console.error("Error checking connection:", error);
