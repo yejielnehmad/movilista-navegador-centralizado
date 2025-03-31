@@ -5,7 +5,7 @@ import App from './App.tsx';
 import './index.css';
 import { registerSW } from './utils/registerSW';
 
-// Registrar el service worker
+// Register the service worker
 registerSW();
 
 const rootElement = document.getElementById("root");

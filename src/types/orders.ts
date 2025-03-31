@@ -1,6 +1,7 @@
 
 import { Product, ProductVariant, ProductWithVariants } from "@/services/productService";
 import type { Database } from "@/integrations/supabase/types";
+import { Json } from "@/integrations/supabase/types";
 
 export type Client = Database["public"]["Tables"]["clients"]["Row"];
 
