@@ -196,7 +196,8 @@ const findMatchingProduct = (
   }
   
   // Check if the product has variants
-  if (!productMatch.variants || productMatch.variants.length === 0) {
+  const productVariants = productMatch.variants as ProductVariant[];
+  if (!productVariants || productVariants.length === 0) {
     return {
       productMatch,
       variantMatch: null,
@@ -210,10 +211,10 @@ const findMatchingProduct = (
   
   // Try to match based on the variant description and quantity
   const variantDesc_lower = variantDesc.toLowerCase();
-  variantMatch = productMatch.variants.find(v => 
+  variantMatch = productVariants.find(v => 
     v.name.toLowerCase().includes(variantDesc_lower) ||
     variantDesc_lower.includes(v.name.toLowerCase())
-  );
+  ) || null;
   
   if (!variantMatch) {
     return {

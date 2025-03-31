@@ -1,5 +1,5 @@
 
-import { Product, ProductVariant } from "@/services/productService";
+import { Product, ProductVariant, ProductWithVariants } from "@/services/productService";
 import type { Database } from "@/integrations/supabase/types";
 
 export type Client = Database["public"]["Tables"]["clients"]["Row"];
@@ -10,7 +10,7 @@ export interface OrderItem {
   variantDescription: string;
   quantity: number;
   clientMatch?: Client | null;
-  productMatch?: Product | null;
+  productMatch?: ProductWithVariants | null;
   variantMatch?: ProductVariant | null;
   status: 'valid' | 'warning' | 'error';
   issues: string[];

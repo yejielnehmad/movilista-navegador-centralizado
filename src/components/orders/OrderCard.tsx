@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ProductWithVariants } from '@/services/productService';
+import { ProductWithVariants, ProductVariant } from '@/services/productService';
 
 interface OrderCardProps {
   item: OrderItem;
@@ -34,7 +34,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
   const handleVariantChange = (variantId: string) => {
     if (!item.productMatch) return;
     
-    const selectedVariant = item.productMatch.variants.find(v => v.id === variantId);
+    const selectedVariant = (item.productMatch.variants as ProductVariant[]).find(v => v.id === variantId);
     if (selectedVariant) {
       onUpdate({
         ...item,
@@ -142,7 +142,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
                     <SelectValue placeholder="Select a variant" />
                   </SelectTrigger>
                   <SelectContent>
-                    {item.productMatch.variants.map(variant => (
+                    {(item.productMatch.variants as ProductVariant[]).map(variant => (
                       <SelectItem key={variant.id} value={variant.id}>
                         {variant.name} - ${variant.price.toFixed(2)}
                       </SelectItem>
@@ -180,7 +180,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
                       <SelectValue placeholder="Select a variant" />
                     </SelectTrigger>
                     <SelectContent>
-                      {item.productMatch.variants.map(variant => (
+                      {(item.productMatch.variants as ProductVariant[]).map(variant => (
                         <SelectItem key={variant.id} value={variant.id} className="text-xs">
                           {variant.name} - ${variant.price.toFixed(2)}
                         </SelectItem>
