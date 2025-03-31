@@ -13,6 +13,7 @@ import AIOrders from "@/pages/AIOrders";
 import Orders from "@/pages/Orders";
 import NotFound from "@/pages/NotFound";
 import { checkSupabaseConnection } from "@/lib/supabase";
+import { GeminiProvider } from "@/contexts/GeminiContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,22 +36,24 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<MainLayout />}>
-              <Route index element={<Index />} />
-              <Route path="products" element={<Products />} />
-              <Route path="clients" element={<Clients />} />
-              <Route path="ai-orders" element={<AIOrders />} />
-              <Route path="orders" element={<Orders />} />
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <GeminiProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<MainLayout />}>
+                <Route index element={<Index />} />
+                <Route path="products" element={<Products />} />
+                <Route path="clients" element={<Clients />} />
+                <Route path="ai-orders" element={<AIOrders />} />
+                <Route path="orders" element={<Orders />} />
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </GeminiProvider>
     </QueryClientProvider>
   );
 };

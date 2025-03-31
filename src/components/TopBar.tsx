@@ -3,6 +3,7 @@ import React from 'react';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import GeminiStatusBadge from './GeminiStatusBadge';
 
 interface TopBarProps {
   onMenuToggle: () => void;
@@ -15,9 +16,12 @@ const TopBar: React.FC<TopBarProps> = ({ onMenuToggle, className }) => {
       <div className="flex items-center">
         <h1 className="text-lg font-semibold">VentasCom Mágico</h1>
       </div>
-      <Button variant="ghost" size="icon" onClick={onMenuToggle} aria-label="Menú">
-        <Menu className="h-6 w-6" />
-      </Button>
+      <div className="flex items-center gap-3">
+        <GeminiStatusBadge />
+        <Button variant="ghost" size="icon" onClick={onMenuToggle} aria-label="Menú">
+          <Menu className="h-6 w-6" />
+        </Button>
+      </div>
     </div>
   );
 };
