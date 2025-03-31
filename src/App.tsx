@@ -12,7 +12,7 @@ import Clients from "@/pages/Clients";
 import AIOrders from "@/pages/AIOrders";
 import Orders from "@/pages/Orders";
 import NotFound from "@/pages/NotFound";
-import { supabase, checkSupabaseConnection } from "@/lib/supabase";
+import { checkSupabaseConnection } from "@/lib/supabase";
 
 const queryClient = new QueryClient({
   defaultOptions: {

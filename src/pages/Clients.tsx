@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Card, 
@@ -31,15 +31,10 @@ import { Plus, Edit, Trash } from 'lucide-react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import type { Database } from '@/integrations/supabase/types';
 
-// Definir el tipo para el cliente
-interface Client {
-  id: string;
-  name: string;
-  phone: string | null;
-  created_at: string;
-  updated_at: string;
-}
+// Definir el tipo para el cliente usando los tipos generados
+type Client = Database['public']['Tables']['clients']['Row'];
 
 // Esquema de validación para el formulario de cliente
 const clientSchema = z.object({
