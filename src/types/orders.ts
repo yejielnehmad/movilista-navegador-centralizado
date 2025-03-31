@@ -15,6 +15,7 @@ export interface Order {
   clients?: Client; // For joined data
 }
 
+// Base order item structure as stored in the database
 export interface OrderItemData {
   product_id?: string;
   product_name: string;
@@ -23,6 +24,7 @@ export interface OrderItemData {
   quantity: number;
 }
 
+// Extended order item structure with validation data
 export interface OrderItem {
   clientName: string;
   productName: string;

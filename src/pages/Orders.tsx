@@ -105,8 +105,8 @@ const Orders: React.FC = () => {
       ) : (
         <div className="space-y-4">
           {orders.map((order) => {
-            // Calculate total items
-            const orderItems = order.items as OrderItemData[];
+            // Ensure items is treated as OrderItemData[]
+            const orderItems = Array.isArray(order.items) ? order.items : [];
             const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
             const isExpanded = expandedOrder === order.id;
 
