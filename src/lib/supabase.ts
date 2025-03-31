@@ -1,20 +1,16 @@
 
 import { createClient } from '@supabase/supabase-js';
+import { supabase as supabaseClient } from '@/integrations/supabase/client';
 
-// Estas URLs vienen de la configuración de Supabase
-// En un entorno real, deberían venir de variables de entorno
-const supabaseUrl = 'https://your-supabase-url.supabase.co';
-const supabaseAnonKey = 'your-anon-key';
-
-// Crea el cliente de Supabase
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Usar el cliente de Supabase ya configurado
+export const supabase = supabaseClient;
 
 // Función para verificar la conexión con Supabase
 export async function checkSupabaseConnection() {
   try {
-    const { data, error } = await supabase.from('health_check').select('*').limit(1);
+    const { data, error } = await supabase.from('clients').select('count').single();
     
-    if (error) {
+    if (error && error.code !== 'PGRST116') {
       console.error('Error al conectar con Supabase:', error);
       return false;
     }

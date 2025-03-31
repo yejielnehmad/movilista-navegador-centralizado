@@ -31,15 +31,6 @@ const App = () => {
     };
     
     checkConnection();
-    
-    // Suscribirse a eventos de conexión
-    const subscription = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Estado de autenticación cambiado:', event);
-    });
-    
-    return () => {
-      subscription.data.subscription.unsubscribe();
-    };
   }, []);
 
   return (
