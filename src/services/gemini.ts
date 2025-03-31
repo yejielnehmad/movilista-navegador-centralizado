@@ -58,7 +58,7 @@ class GeminiClient {
   private lastError: string | null = null;
 
   constructor() {
-    // Use environment variable or hardcoded key (for development purposes only)
+    // Use hardcoded key as requested
     this.apiKey = "AIzaSyAODux90Zf2iJnC8QGNuA-ab3BIbpwa2K0";
   }
 
