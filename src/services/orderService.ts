@@ -1,10 +1,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { OrderItem } from "@/types/orders";
-import type { Database } from "@/integrations/supabase/types";
-
-export type Order = Database["public"]["Tables"]["orders"]["Row"];
+import { Order, OrderItem, OrderItemData } from "@/types/orders";
 
 // Fetch all orders with client details
 export const fetchOrders = async (): Promise<Order[]> => {
@@ -20,7 +17,7 @@ export const fetchOrders = async (): Promise<Order[]> => {
       return [];
     }
 
-    return data;
+    return data as Order[];
   } catch (error) {
     console.error("Error in fetchOrders:", error);
     toast.error("Failed to load orders");
@@ -61,7 +58,7 @@ export const saveOrder = async (
     }
 
     toast.success("Order saved successfully");
-    return data;
+    return data as Order;
   } catch (error) {
     console.error("Error in saveOrder:", error);
     toast.error("Failed to save order");

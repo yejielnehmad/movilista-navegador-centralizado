@@ -29,6 +29,7 @@ import {
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Package, Trash2, User } from 'lucide-react';
+import { OrderItemData } from '@/types/orders';
 
 const Orders: React.FC = () => {
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -105,7 +106,7 @@ const Orders: React.FC = () => {
         <div className="space-y-4">
           {orders.map((order) => {
             // Calculate total items
-            const orderItems = order.items as any[];
+            const orderItems = order.items as OrderItemData[];
             const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
             const isExpanded = expandedOrder === order.id;
 
