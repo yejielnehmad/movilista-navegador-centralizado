@@ -2,6 +2,7 @@
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Order, OrderItem, OrderItemData } from "@/types/orders";
+import { Json } from "@/integrations/supabase/types";
 
 // Fetch all orders with client details
 export const fetchOrders = async (): Promise<Order[]> => {
@@ -20,7 +21,15 @@ export const fetchOrders = async (): Promise<Order[]> => {
     // Transform the JSON items to strongly typed OrderItemData[]
     return (data || []).map(item => ({
       ...item,
-      items: Array.isArray(item.items) ? item.items as OrderItemData[] : []
+      items: Array.isArray(item.items) 
+        ? (item.items as any[]).map(i => ({
+            product_id: i.product_id,
+            product_name: i.product_name,
+            variant_id: i.variant_id,
+            variant_name: i.variant_name,
+            quantity: i.quantity
+          }))
+        : []
     })) as Order[];
   } catch (error) {
     console.error("Error in fetchOrders:", error);
@@ -65,7 +74,15 @@ export const saveOrder = async (
     // Transform the returned data to match our Order type
     return {
       ...data,
-      items: Array.isArray(data.items) ? data.items as OrderItemData[] : []
+      items: Array.isArray(data.items) 
+        ? (data.items as any[]).map(i => ({
+            product_id: i.product_id,
+            product_name: i.product_name,
+            variant_id: i.variant_id,
+            variant_name: i.variant_name,
+            quantity: i.quantity
+          }))
+        : []
     } as Order;
   } catch (error) {
     console.error("Error in saveOrder:", error);
