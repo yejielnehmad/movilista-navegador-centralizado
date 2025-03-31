@@ -25,12 +25,14 @@ export const GeminiProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setConnectionStatus(status);
     });
 
-    // Check connection on mount
-    geminiClient.checkConnection();
+    // Only check connection once on mount
+    if (connectionStatus === GeminiConnectionStatus.DISCONNECTED) {
+      geminiClient.checkConnection();
+    }
 
     // Unsubscribe when component unmounts
     return unsubscribe;
-  }, []);
+  }, [connectionStatus]);
 
   const value = {
     generateContent: geminiClient.generateContent.bind(geminiClient),

@@ -53,13 +53,12 @@ class GeminiClient {
   private apiKey: string | null = null;
   private connectionStatus: GeminiConnectionStatus = GeminiConnectionStatus.DISCONNECTED;
   private connectionListeners: ((status: GeminiConnectionStatus) => void)[] = [];
+  private lastConnectionCheck: number = 0;
+  private readonly CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
 
   constructor() {
     // Use environment variable or hardcoded key (for development purposes only)
     this.apiKey = "AIzaSyAODux90Zf2iJnC8QGNuA-ab3BIbpwa2K0";
-    
-    // Check connection on initialization
-    this.checkConnection();
   }
 
   // Register connection status listeners
@@ -89,6 +88,8 @@ class GeminiClient {
       return false;
     }
 
+    const now = Date.now();
+
     try {
       this.setConnectionStatus(GeminiConnectionStatus.CONNECTING);
       
@@ -109,16 +110,19 @@ class GeminiClient {
       });
 
       if (response.ok) {
+        this.lastConnectionCheck = now;
         this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
         return true;
       } else {
         const errorData: GeminiError = await response.json();
         console.error("Gemini API connection error:", errorData);
+        this.lastConnectionCheck = now;
         this.setConnectionStatus(GeminiConnectionStatus.ERROR);
         return false;
       }
     } catch (error) {
       console.error("Gemini API connection check failed:", error);
+      this.lastConnectionCheck = now;
       this.setConnectionStatus(GeminiConnectionStatus.ERROR);
       return false;
     }
@@ -138,6 +142,13 @@ class GeminiClient {
       return null;
     }
 
+    // Check connection if we haven't done so recently
+    const now = Date.now();
+    if (this.connectionStatus === GeminiConnectionStatus.DISCONNECTED && 
+       (now - this.lastConnectionCheck > this.CONNECTION_CHECK_INTERVAL)) {
+      await this.checkConnection();
+    }
+
     const request: GeminiRequest = {
       contents: [{
         parts: [{ text: prompt }]
@@ -150,7 +161,8 @@ class GeminiClient {
     };
 
     try {
-      this.setConnectionStatus(GeminiConnectionStatus.CONNECTING);
+      // We don't change status to CONNECTING here during actual API usage
+      // Only during explicit connection checks
       
       const response = await fetch(`${GEMINI_API_URL}?key=${this.apiKey}`, {
         method: 'POST',
@@ -172,16 +184,15 @@ class GeminiClient {
       // Check for content filtering
       if (data.promptFeedback?.blockReason) {
         toast.error(`Content blocked: ${data.promptFeedback.blockReason}`);
-        this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
         return null;
       }
 
       if (!data.candidates || data.candidates.length === 0) {
         toast.error("No response from Gemini API");
-        this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
         return null;
       }
 
+      // Mark as connected since we successfully communicated with the API
       this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
       return data.candidates[0].content.parts[0].text;
     } catch (error) {
