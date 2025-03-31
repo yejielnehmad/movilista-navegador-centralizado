@@ -14,7 +14,7 @@ interface GeminiContextType {
 
 const GeminiContext = createContext<GeminiContextType | undefined>(undefined);
 
-export const GeminiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function GeminiProvider({ children }: { children: React.ReactNode }) {
   const [connectionStatus, setConnectionStatus] = useState<GeminiConnectionStatus>(
     geminiClient.getConnectionStatus()
   );
@@ -41,7 +41,7 @@ export const GeminiProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   return <GeminiContext.Provider value={value}>{children}</GeminiContext.Provider>;
-};
+}
 
 export const useGemini = (): GeminiContextType => {
   const context = useContext(GeminiContext);
