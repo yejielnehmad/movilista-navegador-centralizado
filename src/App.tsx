@@ -17,6 +17,7 @@ import { checkSupabaseConnection } from "@/lib/supabase";
 import { GeminiProvider } from "@/contexts/GeminiContext";
 import { MessageProcessingProvider } from "@/contexts/MessageProcessingContext";
 
+// Create a new QueryClient instance outside of component
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -28,7 +29,7 @@ const queryClient = new QueryClient({
 });
 
 function App() {
-  // Verificar la conexión con Supabase al iniciar la aplicación
+  // Check Supabase connection when the app starts
   useEffect(() => {
     const checkConnection = async () => {
       try {
