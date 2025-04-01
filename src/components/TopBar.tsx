@@ -14,7 +14,7 @@ interface TopBarProps {
 }
 
 const TopBar: React.FC<TopBarProps> = ({ onMenuToggle, className }) => {
-  const { registerGlobalListener } = useMessageProcessing();
+  const { registerGlobalListener, activeTask } = useMessageProcessing();
   const [currentTask, setCurrentTask] = useState<ProcessingProgress | null>(null);
 
   useEffect(() => {
@@ -23,8 +23,13 @@ const TopBar: React.FC<TopBarProps> = ({ onMenuToggle, className }) => {
       setCurrentTask(progress);
     });
     
+    // Also sync with activeTask from context
+    if (activeTask) {
+      setCurrentTask(activeTask);
+    }
+    
     return unsubscribe;
-  }, [registerGlobalListener]);
+  }, [registerGlobalListener, activeTask]);
 
   // Calculate progress bar status
   const getProgressStatus = () => {
@@ -34,6 +39,12 @@ const TopBar: React.FC<TopBarProps> = ({ onMenuToggle, className }) => {
     if (currentTask.stage === 'completed') return 'complete';
     
     return 'loading';
+  };
+
+  // Calculate progress percentage
+  const getProgressPercentage = () => {
+    if (!currentTask) return 0;
+    return currentTask.progress;
   };
 
   return (
@@ -52,7 +63,7 @@ const TopBar: React.FC<TopBarProps> = ({ onMenuToggle, className }) => {
       
       {/* Progress indicator that shows AI processing status */}
       <ProgressBar 
-        progress={currentTask?.progress || 0}
+        progress={getProgressPercentage()}
         status={getProgressStatus()}
       />
     </>

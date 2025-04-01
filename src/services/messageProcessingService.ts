@@ -1,3 +1,4 @@
+
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -17,6 +18,7 @@ class MessageProcessingService {
   private activeTaskId: string | null = null;
   private pendingApiCalls: Map<string, Promise<any>> = new Map();
   private isSyncingWithSupabase: boolean = false;
+  private messageToTaskIdMap: Map<string, string> = new Map();
   
   constructor() {
     this.loadFromStorage();
@@ -35,8 +37,42 @@ class MessageProcessingService {
     // Get the most recent active task if any
     this.resumeActiveTask();
 
+    // Build message to task ID map for quick lookups
+    this.buildMessageToTaskIdMap();
+    
     // Initial sync with Supabase
     this.syncWithSupabase();
+  }
+  
+  /**
+   * Build a map of messages to task IDs for quick lookups
+   */
+  private buildMessageToTaskIdMap(): void {
+    this.messageToTaskIdMap.clear();
+    
+    Object.values(this.processingTasks).forEach(task => {
+      // Normalize message by trimming whitespace
+      const normalizedMessage = task.message.trim();
+      this.messageToTaskIdMap.set(normalizedMessage, task.id);
+    });
+  }
+  
+  /**
+   * Find an existing task by message content
+   */
+  public findTaskByMessage(message: string): ProcessingProgress | null {
+    // Normalize message by trimming whitespace
+    const normalizedMessage = message.trim();
+    const taskId = this.messageToTaskIdMap.get(normalizedMessage);
+    
+    if (taskId && this.processingTasks[taskId]) {
+      return this.processingTasks[taskId];
+    }
+    
+    // If not found in map, do a full search (less efficient)
+    return Object.values(this.processingTasks).find(task => 
+      task.message.trim() === normalizedMessage
+    ) || null;
   }
   
   /**
@@ -48,16 +84,23 @@ class MessageProcessingService {
     products: ProductWithVariants[]
   ): Promise<string> {
     // Check if we already have a task for this exact message
-    const existingTask = Object.values(this.processingTasks).find(task => 
-      task.message === message && 
-      (task.stage === 'completed' || task.stage === 'ai_processing')
-    );
+    const existingTask = this.findTaskByMessage(message);
 
     if (existingTask) {
-      console.log('Using existing task for message:', message);
+      console.log('Using existing task for message:', message.substring(0, 50) + '...');
       this.activeTaskId = existingTask.id;
       this.notifyListeners(existingTask.id);
-      return existingTask.id;
+      
+      // If task is still in progress, return without reprocessing
+      if (existingTask.stage !== 'completed' && existingTask.stage !== 'failed') {
+        return existingTask.id;
+      }
+      
+      // If task is completed or failed, we can return it immediately
+      if (existingTask.stage === 'completed') {
+        console.log('Using existing completed task without reprocessing');
+        return existingTask.id;
+      }
     }
     
     // Generate a unique ID for this processing task
@@ -76,6 +119,7 @@ class MessageProcessingService {
     };
     
     this.processingTasks[taskId] = initialProgress;
+    this.messageToTaskIdMap.set(message.trim(), taskId);
     this.saveToStorage();
     this.notifyListeners(taskId);
     
@@ -224,7 +268,8 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       });
       
       // Save to Supabase
-      this.saveTaskToSupabase(this.processingTasks[taskId]);
+      this.saveTaskToSupabase(this.processingTasks[taskId])
+        .catch(error => console.error('Error saving completed task to Supabase:', error));
       
     } catch (error) {
       console.error('Error in processing loop:', error);
@@ -236,7 +281,8 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       });
       
       // Save the error state to Supabase
-      this.saveTaskToSupabase(this.processingTasks[taskId]);
+      this.saveTaskToSupabase(this.processingTasks[taskId])
+        .catch(error => console.error('Error saving failed task to Supabase:', error));
     }
   }
   
@@ -422,6 +468,7 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
     });
     
     if (hasChanges) {
+      this.buildMessageToTaskIdMap(); // Rebuild message map
       this.saveToStorage();
     }
   }
@@ -451,6 +498,7 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
         // Mark as synced in local storage
         this.processingTasks[task.id].synced = true;
         this.saveToStorage();
+        console.log('Task saved to Supabase:', task.id);
       }
     } catch (err) {
       console.error('Exception saving task to Supabase:', err);
@@ -462,34 +510,49 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    */
   private async loadTasksFromSupabase(): Promise<void> {
     try {
+      // Check if the RPC functions exist first
+      const { data: functionExists, error: functionCheckError } = await supabase
+        .rpc('check_processing_functions_exist');
+        
+      if (functionCheckError || functionExists === null) {
+        console.warn('Processing task functions do not exist yet, skipping sync');
+        return;
+      }
+      
       // Use the RPC function to get tasks
       const { data, error } = await supabase.rpc('get_processing_tasks', {
         limit_count: 20
       });
         
-      if (error) {
+      if (error || !data) {
         console.error('Error loading tasks from Supabase:', error);
         return;
       }
       
-      if (!data || !Array.isArray(data) || data.length === 0) return;
+      if (!Array.isArray(data) || data.length === 0) return;
       
       // Convert to our internal format
       const loadedTasks: Record<string, ProcessingProgress> = {};
       
       data.forEach((record: any) => {
-        loadedTasks[record.id] = {
-          id: record.id,
-          message: record.message,
-          stage: record.stage as ProcessingStage,
-          progress: record.progress,
-          status: record.status as 'pending' | 'success' | 'error',
-          error: record.error,
-          result: record.result ? JSON.parse(record.result) : undefined,
-          raw: record.raw_response ? JSON.parse(record.raw_response) : undefined,
-          timestamp: new Date(record.created_at).getTime(),
-          synced: true
-        };
+        if (!record) return;
+        
+        try {
+          loadedTasks[record.id] = {
+            id: record.id,
+            message: record.message,
+            stage: record.stage as ProcessingStage,
+            progress: record.progress,
+            status: record.status as 'pending' | 'success' | 'error',
+            error: record.error,
+            result: record.result ? JSON.parse(record.result) : undefined,
+            raw: record.raw_response ? JSON.parse(record.raw_response) : undefined,
+            timestamp: new Date(record.created_at).getTime(),
+            synced: true
+          };
+        } catch (parseError) {
+          console.error('Error parsing task from Supabase:', parseError);
+        }
       });
       
       // Merge with local tasks, preferring newer data
@@ -504,12 +567,15 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       
       // Update our state
       this.processingTasks = mergedTasks;
+      this.buildMessageToTaskIdMap(); // Rebuild message map
       this.saveToStorage();
       
       // Update active task if needed
       if (this.activeTaskId && loadedTasks[this.activeTaskId]) {
         this.notifyListeners(this.activeTaskId);
       }
+      
+      console.log(`Loaded ${Object.keys(loadedTasks).length} tasks from Supabase`);
     } catch (err) {
       console.error('Exception loading tasks from Supabase:', err);
     }
@@ -519,7 +585,11 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    * Sync with Supabase (push local changes, pull remote changes)
    */
   public async syncWithSupabase(): Promise<void> {
-    if (this.isSyncingWithSupabase) return;
+    if (this.isSyncingWithSupabase) {
+      console.log('Sync with Supabase already in progress, skipping');
+      return;
+    }
+    
     this.isSyncingWithSupabase = true;
     
     try {
@@ -527,8 +597,9 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       const { data: functionExists, error: functionCheckError } = await supabase
         .rpc('check_processing_functions_exist');
         
-      if (functionCheckError || !functionExists) {
+      if (functionCheckError || functionExists === null) {
         console.log('Processing task functions do not exist yet, skipping sync');
+        this.isSyncingWithSupabase = false;
         return;
       }
       
@@ -536,6 +607,7 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       const unsyncedTasks = Object.values(this.processingTasks).filter(task => !task.synced);
       
       if (unsyncedTasks.length > 0) {
+        console.log(`Syncing ${unsyncedTasks.length} unsynced tasks to Supabase`);
         for (const task of unsyncedTasks) {
           await this.saveTaskToSupabase(task);
         }
@@ -547,6 +619,23 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       console.error('Error syncing with Supabase:', error);
     } finally {
       this.isSyncingWithSupabase = false;
+    }
+  }
+  
+  /**
+   * Clear the task cache after saving orders
+   */
+  public clearTaskById(taskId: string): void {
+    if (this.processingTasks[taskId]) {
+      const message = this.processingTasks[taskId].message;
+      delete this.processingTasks[taskId];
+      this.messageToTaskIdMap.delete(message.trim());
+      
+      if (this.activeTaskId === taskId) {
+        this.activeTaskId = null;
+      }
+      
+      this.saveToStorage();
     }
   }
 }

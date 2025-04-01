@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useGemini } from '@/contexts/GeminiContext';
 import { GeminiConnectionStatus } from '@/services/gemini';
@@ -27,12 +28,14 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const AIOrders: React.FC = () => {
-  const { generateContent, connectionStatus } = useGemini();
+  const { connectionStatus } = useGemini();
   const { 
     processNewMessage, 
     activeTask, 
     isProcessing,
-    getTaskResults
+    getTaskResults,
+    resetActiveTask,
+    syncWithSupabase
   } = useMessageProcessing();
   
   const [message, setMessage] = useState<string>('');
@@ -41,7 +44,7 @@ const AIOrders: React.FC = () => {
   const [groupedOrders, setGroupedOrders] = useState<GroupedOrderItems[]>([]);
   const [confirmedOrders, setConfirmedOrders] = useState<OrderItem[]>([]);
   const [savingOrders, setSavingOrders] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<string>('itemized');
+  const [activeTab, setActiveTab] = useState<string>('grouped');
   const navigate = useNavigate();
 
   const productsQuery = useQuery({
@@ -54,6 +57,12 @@ const AIOrders: React.FC = () => {
     queryFn: fetchClients
   });
 
+  // Sync with Supabase when component mounts to ensure we have the latest data
+  useEffect(() => {
+    syncWithSupabase();
+  }, []);
+
+  // Process activeTask updates
   useEffect(() => {
     if (activeTask?.stage === 'completed' && activeTask?.status === 'success') {
       const results = activeTask.result || [];
@@ -62,9 +71,14 @@ const AIOrders: React.FC = () => {
         
         const grouped = groupOrdersByClientName(results);
         setGroupedOrders(grouped);
+        
+        // If still processing locally, mark as done
+        if (localProcessing) {
+          setLocalProcessing(false);
+        }
       }
     }
-  }, [activeTask]);
+  }, [activeTask, localProcessing]);
 
   const groupOrdersByClientName = (items: OrderItem[]): GroupedOrderItems[] => {
     const groupedByName: Record<string, OrderItem[]> = {};
@@ -110,24 +124,9 @@ const AIOrders: React.FC = () => {
     
     try {
       await processNewMessage(message);
-      
-      if (productsQuery.data && clientsQuery.data) {
-        const quickParsedItems = parseMessyOrderMessage(message);
-        const quickValidatedItems = validateAndMatchOrders(
-          quickParsedItems,
-          clientsQuery.data,
-          productsQuery.data
-        );
-        
-        setParsedOrders(quickValidatedItems);
-        
-        const quickGrouped = groupOrdersByClientName(quickValidatedItems);
-        setGroupedOrders(quickGrouped);
-      }
     } catch (error) {
       console.error('Error processing message:', error);
       toast.error('Error al procesar el mensaje');
-    } finally {
       setLocalProcessing(false);
     }
   };
@@ -256,6 +255,41 @@ const AIOrders: React.FC = () => {
     toast.success(`${validItems.length} pedidos confirmados`);
   };
 
+  const handleConfirmAllGroups = () => {
+    // Filter out groups with errors
+    const validGroups = groupedOrders.filter(group => group.status !== 'error');
+    
+    if (validGroups.length === 0) {
+      toast.error("No hay grupos válidos para confirmar");
+      return;
+    }
+    
+    // Collect all valid items from all valid groups
+    const validItems: OrderItem[] = [];
+    
+    validGroups.forEach(group => {
+      const groupValidItems = group.items.filter(
+        item => item.status !== 'error' && item.variantMatch
+      );
+      
+      validItems.push(...groupValidItems);
+    });
+    
+    if (validItems.length === 0) {
+      toast.error("No hay pedidos válidos para confirmar");
+      return;
+    }
+    
+    // Add to confirmed orders
+    setConfirmedOrders(current => [...current, ...validItems]);
+    
+    // Clear processed orders and groups
+    setParsedOrders([]);
+    setGroupedOrders([]);
+    
+    toast.success(`${validItems.length} pedidos confirmados`);
+  };
+
   const handleSaveOrders = async () => {
     if (confirmedOrders.length === 0) {
       toast.error("No hay pedidos para guardar");
@@ -288,8 +322,14 @@ const AIOrders: React.FC = () => {
 
       await Promise.all(savePromises);
       setConfirmedOrders([]);
-      toast.success("Pedidos guardados con éxito");
+      setParsedOrders([]);
+      setGroupedOrders([]);
+      setMessage('');
       
+      // Reset the active task after saving
+      resetActiveTask();
+      
+      toast.success("Pedidos guardados con éxito");
       navigate('/orders');
     } catch (error) {
       console.error("Error saving orders:", error);
@@ -346,7 +386,7 @@ const AIOrders: React.FC = () => {
         </Alert>
       )}
       
-      {activeTask && activeTask.stage !== 'completed' && (
+      {activeTask && activeTask.stage !== 'completed' && activeTask.stage !== 'failed' && (
         <div className="my-4">
           <MessageProcessingProgress progress={activeTask} />
         </div>
@@ -375,24 +415,8 @@ const AIOrders: React.FC = () => {
               <Button 
                 size="sm"
                 className="text-xs h-8"
-                disabled={parsedOrders.some(order => 
-                  order.status === 'error' || !order.variantMatch
-                )}
-                onClick={() => {
-                  const validOrders = parsedOrders.filter(
-                    order => order.status !== 'error' && order.variantMatch
-                  );
-                  
-                  if (validOrders.length === 0) {
-                    toast.error("No hay pedidos válidos para confirmar");
-                    return;
-                  }
-                  
-                  setConfirmedOrders(current => [...current, ...validOrders]);
-                  setParsedOrders([]);
-                  setGroupedOrders([]);
-                  toast.success(`${validOrders.length} pedidos confirmados`);
-                }}
+                disabled={groupedOrders.some(group => group.status === 'error')}
+                onClick={handleConfirmAllGroups}
               >
                 <Check className="h-3 w-3 mr-1" />
                 Confirmar Todos
@@ -402,22 +426,9 @@ const AIOrders: React.FC = () => {
           
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="itemized">Por Producto</TabsTrigger>
               <TabsTrigger value="grouped">Por Cliente</TabsTrigger>
+              <TabsTrigger value="itemized">Por Producto</TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="itemized" className="space-y-4 mt-4">
-              {parsedOrders.map((item, index) => (
-                <OrderCard 
-                  key={index}
-                  item={item}
-                  allProducts={productsQuery.data || []}
-                  onUpdate={(updatedItem) => handleUpdateOrder(index, updatedItem)}
-                  onRemove={() => handleRemoveOrder(index)}
-                  onConfirm={() => handleConfirmOrder(index)}
-                />
-              ))}
-            </TabsContent>
             
             <TabsContent value="grouped" className="space-y-4 mt-4">
               {groupedOrders.map((group, groupIndex) => (
@@ -487,6 +498,19 @@ const AIOrders: React.FC = () => {
                     </Button>
                   </CardFooter>
                 </Card>
+              ))}
+            </TabsContent>
+            
+            <TabsContent value="itemized" className="space-y-4 mt-4">
+              {parsedOrders.map((item, index) => (
+                <OrderCard 
+                  key={index}
+                  item={item}
+                  allProducts={productsQuery.data || []}
+                  onUpdate={(updatedItem) => handleUpdateOrder(index, updatedItem)}
+                  onRemove={() => handleRemoveOrder(index)}
+                  onConfirm={() => handleConfirmOrder(index)}
+                />
               ))}
             </TabsContent>
           </Tabs>

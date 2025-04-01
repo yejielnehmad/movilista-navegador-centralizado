@@ -48,6 +48,13 @@ export enum GeminiConnectionStatus {
   ERROR = "error"
 }
 
+// Response cache to prevent duplicate API calls
+interface CachedResponse {
+  prompt: string;
+  response: string;
+  timestamp: number;
+}
+
 // Gemini API Client class
 class GeminiClient {
   private apiKey: string | null = null;
@@ -56,10 +63,19 @@ class GeminiClient {
   private lastConnectionCheck: number = 0;
   private readonly CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
   private lastError: string | null = null;
+  private responseCache: Map<string, CachedResponse> = new Map();
+  private readonly CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  private pendingRequests: Map<string, Promise<string | null>> = new Map();
 
   constructor() {
     // Use hardcoded key as requested
     this.apiKey = "AIzaSyDY76G33xyON5Zp6Dypb7kplhzJbit02vQ";
+    
+    // Load cache from localStorage
+    this.loadCacheFromStorage();
+    
+    // Set up periodic cache cleanup
+    setInterval(() => this.cleanupCache(), this.CACHE_EXPIRY / 2);
   }
 
   // Register connection status listeners
@@ -154,8 +170,67 @@ class GeminiClient {
       return false;
     }
   }
+  
+  // Create a cache key for a prompt + options
+  private getCacheKey(prompt: string, options: any): string {
+    return `${prompt}_${JSON.stringify(options)}`;
+  }
+  
+  // Save cache to localStorage
+  private saveCacheToStorage(): void {
+    try {
+      const cache: Record<string, CachedResponse> = {};
+      this.responseCache.forEach((value, key) => {
+        cache[key] = value;
+      });
+      
+      localStorage.setItem('gemini_response_cache', JSON.stringify(cache));
+      console.log(`Saved ${this.responseCache.size} cached responses to storage`);
+    } catch (error) {
+      console.error('Error saving cache to storage:', error);
+    }
+  }
+  
+  // Load cache from localStorage
+  private loadCacheFromStorage(): void {
+    try {
+      const cacheString = localStorage.getItem('gemini_response_cache');
+      if (cacheString) {
+        const cache = JSON.parse(cacheString) as Record<string, CachedResponse>;
+        
+        for (const [key, value] of Object.entries(cache)) {
+          this.responseCache.set(key, value);
+        }
+        
+        console.log(`Loaded ${this.responseCache.size} cached responses from storage`);
+        
+        // Clean up expired items after loading
+        this.cleanupCache();
+      }
+    } catch (error) {
+      console.error('Error loading cache from storage:', error);
+    }
+  }
+  
+  // Clean up expired cache items
+  private cleanupCache(): void {
+    const now = Date.now();
+    let expiredCount = 0;
+    
+    this.responseCache.forEach((value, key) => {
+      if (now - value.timestamp > this.CACHE_EXPIRY) {
+        this.responseCache.delete(key);
+        expiredCount++;
+      }
+    });
+    
+    if (expiredCount > 0) {
+      console.log(`Cleaned up ${expiredCount} expired cache items`);
+      this.saveCacheToStorage();
+    }
+  }
 
-  // Generate content with Gemini API
+  // Generate content with Gemini API with caching and deduplication
   public async generateContent(
     prompt: string,
     options: {
@@ -170,6 +245,22 @@ class GeminiClient {
       this.setConnectionStatus(GeminiConnectionStatus.DISCONNECTED, errorMsg);
       return null;
     }
+    
+    // Generate unique cache key for this request
+    const cacheKey = this.getCacheKey(prompt, options);
+    
+    // Check if we have a cached response
+    const cachedItem = this.responseCache.get(cacheKey);
+    if (cachedItem && Date.now() - cachedItem.timestamp < this.CACHE_EXPIRY) {
+      console.log('Using cached Gemini response for prompt:', prompt.substring(0, 50) + '...');
+      return cachedItem.response;
+    }
+    
+    // Check if there's already a pending request for this prompt
+    if (this.pendingRequests.has(cacheKey)) {
+      console.log('Reusing pending request for prompt:', prompt.substring(0, 50) + '...');
+      return this.pendingRequests.get(cacheKey);
+    }
 
     // Check connection if we haven't done so recently
     const now = Date.now();
@@ -178,6 +269,7 @@ class GeminiClient {
       await this.checkConnection();
     }
 
+    // Create the API request
     const request: GeminiRequest = {
       contents: [{
         parts: [{ text: prompt }]
@@ -189,56 +281,81 @@ class GeminiClient {
       }
     };
 
-    try {
-      console.log(`Generating content with Gemini API (model: ${GEMINI_MODEL})`);
-      
-      const response = await fetch(`${GEMINI_API_URL}?key=${this.apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
+    // Create the promise for this request
+    const requestPromise = (async (): Promise<string | null> => {
+      try {
+        console.log(`Generating content with Gemini API (model: ${GEMINI_MODEL})`);
+        
+        const response = await fetch(`${GEMINI_API_URL}?key=${this.apiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
+        });
 
-      const data = await response.json();
-      console.log("Gemini API response status:", response.status);
-      
-      if (!response.ok) {
-        const errorData = data as GeminiError;
-        const errorMessage = errorData.error?.message || "Unknown API error";
-        console.error("Gemini API error:", errorData);
-        toast.error(`Gemini API error: ${errorMessage}`);
+        const data = await response.json();
+        console.log("Gemini API response status:", response.status);
+        
+        if (!response.ok) {
+          const errorData = data as GeminiError;
+          const errorMessage = errorData.error?.message || "Unknown API error";
+          console.error("Gemini API error:", errorData);
+          toast.error(`Gemini API error: ${errorMessage}`);
+          this.setConnectionStatus(GeminiConnectionStatus.ERROR, errorMessage);
+          return null;
+        }
+
+        const responseData = data as GeminiResponse;
+        
+        // Check for content filtering
+        if (responseData.promptFeedback?.blockReason) {
+          const blockReason = responseData.promptFeedback.blockReason;
+          console.error("Content blocked by Gemini API:", blockReason);
+          toast.error(`Content blocked: ${blockReason}`);
+          return null;
+        }
+
+        if (!responseData.candidates || responseData.candidates.length === 0) {
+          const errorMsg = "No response from Gemini API";
+          console.error(errorMsg);
+          toast.error(errorMsg);
+          return null;
+        }
+
+        // Mark as connected since we successfully communicated with the API
+        this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
+        
+        // Get the response text
+        const responseText = responseData.candidates[0].content.parts[0].text;
+        
+        // Cache the successful response
+        this.responseCache.set(cacheKey, {
+          prompt,
+          response: responseText,
+          timestamp: Date.now()
+        });
+        
+        // Save updated cache to storage
+        this.saveCacheToStorage();
+        
+        return responseText;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Gemini API request failed:", error);
+        toast.error(`Failed to communicate with Gemini API: ${errorMessage}`);
         this.setConnectionStatus(GeminiConnectionStatus.ERROR, errorMessage);
         return null;
+      } finally {
+        // Remove this promise from pending requests
+        this.pendingRequests.delete(cacheKey);
       }
-
-      const responseData = data as GeminiResponse;
-      
-      // Check for content filtering
-      if (responseData.promptFeedback?.blockReason) {
-        const blockReason = responseData.promptFeedback.blockReason;
-        console.error("Content blocked by Gemini API:", blockReason);
-        toast.error(`Content blocked: ${blockReason}`);
-        return null;
-      }
-
-      if (!responseData.candidates || responseData.candidates.length === 0) {
-        const errorMsg = "No response from Gemini API";
-        console.error(errorMsg);
-        toast.error(errorMsg);
-        return null;
-      }
-
-      // Mark as connected since we successfully communicated with the API
-      this.setConnectionStatus(GeminiConnectionStatus.CONNECTED);
-      return responseData.candidates[0].content.parts[0].text;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("Gemini API request failed:", error);
-      toast.error(`Failed to communicate with Gemini API: ${errorMessage}`);
-      this.setConnectionStatus(GeminiConnectionStatus.ERROR, errorMessage);
-      return null;
-    }
+    })();
+    
+    // Store the promise so we can reuse it for duplicate requests
+    this.pendingRequests.set(cacheKey, requestPromise);
+    
+    return requestPromise;
   }
 }
 

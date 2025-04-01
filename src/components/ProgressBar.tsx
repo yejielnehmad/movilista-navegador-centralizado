@@ -3,7 +3,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 
 interface ProgressBarProps {
-  progress: number; // 0 a 100
+  progress: number; // 0 to 100
   status: 'idle' | 'loading' | 'complete' | 'error';
   className?: string;
 }

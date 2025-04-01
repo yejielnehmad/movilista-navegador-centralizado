@@ -33,6 +33,9 @@ interface MessageProcessingContextType {
   
   // Manually trigger a sync with Supabase
   syncWithSupabase: () => Promise<void>;
+  
+  // Reset the current active task (used after saving)
+  resetActiveTask: () => void;
 }
 
 const MessageProcessingContext = createContext<MessageProcessingContextType | undefined>(undefined);
@@ -57,21 +60,21 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   
   // On mount, check for any active tasks and restore their state
   useEffect(() => {
-    // Get the current active task from the processor
-    const currentActiveTask = messageProcessor.getActiveTask();
-    if (currentActiveTask) {
-      setActiveTaskId(currentActiveTask.id);
-      setActiveTask(currentActiveTask);
-      
-      // Update processing state
-      setIsProcessing(
-        currentActiveTask.stage !== 'completed' && 
-        currentActiveTask.stage !== 'failed'
-      );
-    }
-    
-    // Trigger sync with Supabase
-    messageProcessor.syncWithSupabase();
+    // First, sync with Supabase to ensure we have the latest data
+    messageProcessor.syncWithSupabase().then(() => {
+      // Get the current active task from the processor after sync
+      const currentActiveTask = messageProcessor.getActiveTask();
+      if (currentActiveTask) {
+        setActiveTaskId(currentActiveTask.id);
+        setActiveTask(currentActiveTask);
+        
+        // Update processing state
+        setIsProcessing(
+          currentActiveTask.stage !== 'completed' && 
+          currentActiveTask.stage !== 'failed'
+        );
+      }
+    });
     
     // Set up periodic sync
     const syncInterval = setInterval(() => {
@@ -85,6 +88,16 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   const processNewMessage = async (message: string): Promise<string> => {
     if (!clientsQuery.data || !productsQuery.data) {
       throw new Error('Clients and products data must be loaded before processing');
+    }
+    
+    // First, check if we already have a completed analysis for this exact message
+    const existingTask = messageProcessor.findTaskByMessage(message);
+    if (existingTask && existingTask.stage === 'completed') {
+      console.log('Using existing completed analysis for message:', message.substring(0, 50) + '...');
+      setActiveTaskId(existingTask.id);
+      setActiveTask(existingTask);
+      setIsProcessing(false);
+      return existingTask.id;
     }
     
     const taskId = await messageProcessor.processMessage(
@@ -127,6 +140,13 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   const syncWithSupabase = async (): Promise<void> => {
     return messageProcessor.syncWithSupabase();
   };
+  
+  // Reset the current active task (after saving an order)
+  const resetActiveTask = (): void => {
+    setActiveTaskId(null);
+    setActiveTask(null);
+    setIsProcessing(false);
+  };
 
   // Monitor active task
   useEffect(() => {
@@ -160,6 +180,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     isProcessing,
     registerGlobalListener,
     syncWithSupabase,
+    resetActiveTask
   };
 
   return (
