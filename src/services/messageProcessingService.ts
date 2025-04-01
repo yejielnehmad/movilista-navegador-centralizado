@@ -1,4 +1,3 @@
-
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -208,23 +207,70 @@ class MessageProcessingService {
       try {
         // Only use AI if we have some items already detected and Gemini is available
         if (validatedItems.length > 0 && geminiClient.getConnectionStatus() === GeminiConnectionStatus.CONNECTED) {
+          // Create a context-aware prompt with client and product data
+          const clientContext = clients.map(client => 
+            `${client.name} (ID: ${client.id})`
+          ).join(', ');
+          
+          const productContext = products.map(product => {
+            const variants = product.variants.map(v => 
+              `${v.name} (ID: ${v.id})`
+            ).join(', ');
+            
+            return `${product.name} (ID: ${product.id}) - Variantes: ${variants || "ninguna"}`;
+          }).join('\n');
+          
           // Prepare a structured message for Gemini to analyze
           const aiPrompt = `
-Analiza este mensaje de WhatsApp con pedidos: "${message}"
+Eres un asistente especializado en procesar pedidos de tiendas. Analiza este mensaje de WhatsApp:
 
-Ya detecté estos pedidos:
+"${message}"
+
+CONTEXTO DE LA APLICACIÓN:
+=========================
+La aplicación tiene los siguientes clientes registrados:
+${clientContext}
+
+Y los siguientes productos disponibles:
+${productContext}
+
+PEDIDOS YA DETECTADOS:
+====================
 ${validatedItems.map(item => 
-  `- Cliente: ${item.clientMatch?.name || item.clientName}, Producto: ${item.productMatch?.name || item.productName}, Cantidad: ${item.quantity}, Variante: ${item.variantMatch?.name || item.variantDescription || "No especificada"}`
+  `- Cliente: ${item.clientMatch?.name || item.clientName} (ID: ${item.clientMatch?.id || "no encontrado"}), Producto: ${item.productMatch?.name || item.productName} (ID: ${item.productMatch?.id || "no encontrado"}), Cantidad: ${item.quantity}, Variante: ${item.variantMatch?.name || item.variantDescription || "No especificada"} (ID: ${item.variantMatch?.id || "no encontrada"})`
 ).join('\n')}
 
-Por favor, intenta entender mejor el mensaje e identifica:
-1. Clientes adicionales o corregidos
-2. Productos adicionales o corregidos 
-3. Cantidades incorrectas
-4. Variantes adicionales o corregidas
+INSTRUCCIONES:
+==============
+1. Corrige nombres de clientes mal escritos, incompletos o con typos, usando la lista de clientes proporcionada
+2. Identifica productos mencionados que coincidan con los productos disponibles
+3. Detecta variantes de productos mencionadas o sugeridas en el contexto
+4. Infiere cantidades precisas y unidades de medida
 5. Agrupa múltiples pedidos del mismo cliente
 
-Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctamente.
+FORMATO DE RESPUESTA:
+====================
+Responde en formato JSON con este esquema:
+{
+  "pedidos": [
+    {
+      "cliente": "nombre_corregido",
+      "cliente_id": "id_del_cliente", 
+      "items": [
+        {
+          "producto": "nombre_del_producto",
+          "producto_id": "id_del_producto",
+          "cantidad": número,
+          "variante": "nombre_de_variante",
+          "variante_id": "id_de_variante",
+          "confianza": "alta|media|baja"
+        }
+      ]
+    }
+  ]
+}
+
+Responde SOLO con el JSON, sin texto introductorio ni conclusión.
           `;
           
           const aiContent = await geminiClient.generateContent(aiPrompt, { 
@@ -238,9 +284,55 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
               raw: aiContent
             });
             
-            // In a real implementation, we'd parse the AI's response 
-            // and update the items accordingly
-            // For now, just use the validated items
+            try {
+              // Attempt to parse the AI's JSON response
+              const aiResponse = JSON.parse(aiContent);
+              
+              if (aiResponse.pedidos && Array.isArray(aiResponse.pedidos)) {
+                // Transform the AI's structured response back into OrderItems
+                const aiProcessedItems: OrderItem[] = [];
+                
+                aiResponse.pedidos.forEach(pedido => {
+                  const clientMatch = clients.find(c => c.id === pedido.cliente_id) || 
+                                      clients.find(c => c.name.toLowerCase() === pedido.cliente.toLowerCase());
+                  
+                  (pedido.items || []).forEach(item => {
+                    const productMatch = products.find(p => p.id === item.producto_id) ||
+                                         products.find(p => p.name.toLowerCase() === item.producto.toLowerCase());
+                    
+                    let variantMatch = null;
+                    if (productMatch && item.variante_id) {
+                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id);
+                    } else if (productMatch && item.variante) {
+                      variantMatch = productMatch.variants.find(v => 
+                        v.name.toLowerCase() === item.variante.toLowerCase()
+                      );
+                    }
+                    
+                    // Create enhanced order item
+                    aiProcessedItems.push({
+                      clientName: pedido.cliente,
+                      productName: item.producto,
+                      variantDescription: item.variante || "",
+                      quantity: item.cantidad,
+                      clientMatch: clientMatch || null,
+                      productMatch: productMatch || null,
+                      variantMatch: variantMatch || null,
+                      status: this.getItemStatus(item.confianza, !!clientMatch, !!productMatch),
+                      issues: []
+                    });
+                  });
+                });
+                
+                // If we successfully parsed items, use them instead
+                if (aiProcessedItems.length > 0) {
+                  enhancedItems = aiProcessedItems;
+                }
+              }
+            } catch (parseError) {
+              console.warn('Error parsing AI response:', parseError);
+              // Fall back to basic detection if JSON parsing fails
+            }
           }
         } else {
           console.log('Skipping AI enhancement:', 
@@ -249,7 +341,6 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       } catch (aiError) {
         console.warn('AI enhancement failed, but continuing with basic detection:', aiError);
         // Continue with basic detection without AI enhancement
-        // Don't mark the whole process as failed
       }
       
       // Group items by client for better organization
@@ -284,6 +375,25 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       this.saveTaskToSupabase(this.processingTasks[taskId])
         .catch(error => console.error('Error saving failed task to Supabase:', error));
     }
+  }
+  
+  /**
+   * Determine item status based on confidence and matches
+   */
+  private getItemStatus(
+    confidence: string | undefined,
+    hasClientMatch: boolean,
+    hasProductMatch: boolean
+  ): 'valid' | 'warning' | 'error' {
+    if (!hasClientMatch || !hasProductMatch) {
+      return 'error';
+    }
+    
+    if (confidence === 'baja') {
+      return 'warning';
+    }
+    
+    return 'valid';
   }
   
   /**

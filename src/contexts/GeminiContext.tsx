@@ -29,12 +29,11 @@ export function GeminiProvider({ children }: { children: React.ReactNode }) {
       setLastError(geminiClient.getLastError());
     });
 
-    if (connectionStatus === GeminiConnectionStatus.DISCONNECTED) {
-      geminiClient.checkConnection();
-    }
+    // Always check connection when component mounts to ensure API key change is reflected
+    geminiClient.checkConnection();
 
     return unsubscribe;
-  }, [connectionStatus]);
+  }, []);
 
   const checkConnection = useCallback(async () => {
     return geminiClient.checkConnection();

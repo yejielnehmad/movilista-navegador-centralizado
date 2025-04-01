@@ -1,4 +1,3 @@
-
 import { toast } from "sonner";
 
 // API configuration
@@ -68,8 +67,8 @@ class GeminiClient {
   private pendingRequests: Map<string, Promise<string | null>> = new Map();
 
   constructor() {
-    // Use hardcoded key as requested
-    this.apiKey = "AIzaSyDY76G33xyON5Zp6Dypb7kplhzJbit02vQ";
+    // Use updated API key
+    this.apiKey = "AIzaSyAhuGJOdg3blS0GtFCKZVQLHzZcpVbjawo";
     
     // Load cache from localStorage
     this.loadCacheFromStorage();
