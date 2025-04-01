@@ -1,11 +1,10 @@
-import { Gemini } from '@/services/gemini';
+
+import { geminiClient, GeminiConnectionStatus } from '@/services/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { Database } from '@/types/supabase';
-import { Client } from '@/types/clients';
-import { Product } from '@/types/products';
 import { OrderItem } from '@/types/orders';
+import { Client } from '@/types/orders';
+import { ProductWithVariants, ProductVariant } from '@/services/productService';
 
 /* Message Processing Service
  *
@@ -19,18 +18,24 @@ interface AIItem {
   producto: string;
   variante?: string;
   cantidad: number;
-  confianza: number;
+  confianza: string;
   producto_id?: string;
   variante_id?: string;
 }
 
-interface AIAnalysis {
+interface AIPedido {
   cliente: string;
+  cliente_id?: string;
   items: AIItem[];
+}
+
+interface AIResponse {
+  pedidos: AIPedido[];
 }
 
 // Define types for task management
 export type ProcessingStage =
+  | 'not_started'
   | 'parsing'
   | 'analyzing'
   | 'ai_processing'
@@ -39,7 +44,7 @@ export type ProcessingStage =
   | 'completed'
   | 'failed';
 
-export type ProcessingStatus = 'idle' | 'success' | 'error';
+export type ProcessingStatus = 'pending' | 'success' | 'error';
 
 export type ProcessingProgress = {
   id: string;
@@ -47,27 +52,25 @@ export type ProcessingProgress = {
   stage: ProcessingStage;
   status: ProcessingStatus;
   progress: number;
-  startTime: Date;
-  endTime?: Date;
+  timestamp: number;
+  synced?: boolean;
   result?: OrderItem[];
   error?: string;
+  raw?: any;
 };
 
 export type ProgressListener = (progress: ProcessingProgress) => void;
 
 // MessageProcessor class
 class MessageProcessor {
-  private gemini: Gemini;
   private tasks: Map<string, ProcessingProgress> = new Map();
   private globalListeners: ProgressListener[] = [];
   private taskListeners: Map<string, ProgressListener[]> = new Map();
-  private supabaseClient: SupabaseClient<Database>;
   private isSyncing: boolean = false;
   private lastSyncTime: Date | null = null;
 
   constructor() {
-    this.gemini = new Gemini();
-    this.supabaseClient = supabase;
+    this.loadFromStorage();
   }
 
   // Adds a global progress listener
@@ -102,6 +105,19 @@ class MessageProcessor {
     }
   }
 
+  // Finds a task by exact message
+  public findTaskByMessage(message: string): ProcessingProgress | null {
+    const normalizedMessage = message.trim();
+    
+    for (const task of this.tasks.values()) {
+      if (task.message.trim() === normalizedMessage) {
+        return task;
+      }
+    }
+    
+    return null;
+  }
+
   // Creates a new processing task
   private createTask(message: string): ProcessingProgress {
     const taskId = uuidv4();
@@ -109,9 +125,9 @@ class MessageProcessor {
       id: taskId,
       message: message,
       stage: 'parsing',
-      status: 'idle',
+      status: 'pending',
       progress: 0,
-      startTime: new Date(),
+      timestamp: Date.now(),
     };
     this.tasks.set(taskId, task);
     this.persistTask(task); // Persist the task to Supabase
@@ -134,11 +150,10 @@ class MessageProcessor {
 
     task.stage = stage;
     task.progress = progress;
-    task.status = status || task.status; // Only update status if provided
-    task.endTime = status === 'success' || status === 'error' ? new Date() : undefined;
-    task.result = result;
-    task.error = error;
-
+    if (status) task.status = status;
+    if (result) task.result = result;
+    if (error) task.error = error;
+    
     this.tasks.set(taskId, task);
     this.persistTask(task); // Persist the updated task to Supabase
     this.notifyListeners(task); // Notify listeners of the update
@@ -149,7 +164,7 @@ class MessageProcessor {
   // Persists a task to Supabase
   private async persistTask(task: ProcessingProgress): Promise<void> {
     try {
-      const { error } = await this.supabaseClient
+      const { error } = await supabase
         .from('processing_tasks')
         .upsert({
           id: task.id,
@@ -157,8 +172,6 @@ class MessageProcessor {
           stage: task.stage,
           status: task.status,
           progress: task.progress,
-          start_time: task.startTime.toISOString(),
-          end_time: task.endTime?.toISOString(),
           result: task.result ? JSON.stringify(task.result) : null,
           error: task.error,
         });
@@ -171,72 +184,8 @@ class MessageProcessor {
     }
   }
 
-  // Retrieves all tasks from Supabase
-  private async retrieveTasksFromSupabase(): Promise<ProcessingProgress[]> {
-    try {
-      const { data, error } = await this.supabaseClient
-        .from('processing_tasks')
-        .select('*')
-        .order('start_time', { ascending: false });
-
-      if (error) {
-        console.error('Error retrieving tasks from Supabase:', error);
-        return [];
-      }
-
-      const tasks: ProcessingProgress[] = data.map((task) => ({
-        id: task.id,
-        message: task.message,
-        stage: task.stage as ProcessingStage,
-        status: task.status as ProcessingStatus,
-        progress: task.progress,
-        startTime: new Date(task.start_time),
-        endTime: task.end_time ? new Date(task.end_time) : undefined,
-        result: task.result ? JSON.parse(task.result) : undefined,
-        error: task.error,
-      }));
-
-      return tasks;
-    } catch (err) {
-      console.error('Error retrieving tasks from Supabase:', err);
-      return [];
-    }
-  }
-
-  // Syncs tasks with Supabase
-  async syncWithSupabase(): Promise<void> {
-    if (this.isSyncing) {
-      console.log('Sync already in progress, skipping...');
-      return;
-    }
-
-    this.isSyncing = true;
-    console.log('Starting sync with Supabase...');
-
-    try {
-      // Retrieve tasks from Supabase
-      const supabaseTasks = await this.retrieveTasksFromSupabase();
-
-      // Clear local tasks
-      this.tasks.clear();
-
-      // Load tasks from Supabase into local storage
-      supabaseTasks.forEach((task) => {
-        this.tasks.set(task.id, task);
-      });
-
-      console.log(`Successfully synced ${supabaseTasks.length} tasks from Supabase.`);
-      this.lastSyncTime = new Date();
-    } catch (error) {
-      console.error('Error syncing with Supabase:', error);
-    } finally {
-      this.isSyncing = false;
-      console.log('Sync completed.');
-    }
-  }
-
   // Processes a message
-  async processMessage(message: string, clients: Client[], products: Product[]): Promise<string> {
+  async processMessage(message: string, clients: Client[], products: ProductWithVariants[]): Promise<string> {
     const task = this.createTask(message);
     const taskId = task.id;
 
@@ -253,18 +202,25 @@ class MessageProcessor {
 
       // Process message with Gemini AI
       this.updateTaskProgress(taskId, 'ai_processing', 40);
-      const aiResponse = await this.gemini.generateContent(
+      const aiResponse = await geminiClient.generateContent(
         `Extrae el cliente y los productos con cantidad del siguiente pedido: ${message}. 
          El formato de respuesta debe ser JSON y seguir este ejemplo:
          \`\`\`json
          {
-           "cliente": "Nombre del cliente",
-           "items": [
+           "pedidos": [
              {
-               "producto": "Nombre del producto",
-               "variante": "Descripción de la variante si existe",
-               "cantidad": Cantidad solicitada,
-               "confianza": Nivel de confianza en la extracción (0-1)
+               "cliente": "Nombre del cliente",
+               "cliente_id": "ID del cliente si existe",
+               "items": [
+                 {
+                   "producto": "Nombre del producto",
+                   "producto_id": "ID del producto si existe",
+                   "variante": "Descripción de la variante si existe",
+                   "variante_id": "ID de la variante si existe",
+                   "cantidad": 5,
+                   "confianza": "alta"
+                 }
+               ]
              }
            ]
          }
@@ -276,9 +232,22 @@ class MessageProcessor {
       }
 
       // Parse AI response
-      let analysis: AIAnalysis;
+      let aiResult: AIResponse;
       try {
-        analysis = JSON.parse(aiResponse) as AIAnalysis;
+        // Clean the response before parsing
+        let cleanedResponse = aiResponse.trim();
+        
+        // If the response is wrapped in backticks, remove them
+        if (cleanedResponse.startsWith("```json")) {
+          cleanedResponse = cleanedResponse.substring(7);
+        }
+        if (cleanedResponse.endsWith("```")) {
+          cleanedResponse = cleanedResponse.substring(0, cleanedResponse.length - 3);
+        }
+        
+        cleanedResponse = cleanedResponse.trim();
+        
+        aiResult = JSON.parse(cleanedResponse) as AIResponse;
         this.updateTaskProgress(taskId, 'ai_processing', 60);
       } catch (error) {
         console.error('Error parsing AI response:', error);
@@ -287,7 +256,7 @@ class MessageProcessor {
 
       // Validate AI response
       this.updateTaskProgress(taskId, 'validating', 70);
-      if (!analysis || !analysis.cliente || !analysis.items) {
+      if (!aiResult || !aiResult.pedidos || !Array.isArray(aiResult.pedidos)) {
         throw new Error('Invalid AI response format');
       }
 
@@ -295,47 +264,48 @@ class MessageProcessor {
       this.updateTaskProgress(taskId, 'grouping', 80);
 
       // Map AI response to order items
-      const pedido = analysis;
-      const clientMatch = clients.find((c) =>
-        c.name.toLowerCase().includes(pedido.cliente.toLowerCase())
-      );
-
       const aiProcessedItems: OrderItem[] = [];
+      
+      for (const pedido of aiResult.pedidos) {
+        // Find matching client
+        const clientMatch = clients.find((c) =>
+          (pedido.cliente_id && c.id === pedido.cliente_id) || 
+          c.name.toLowerCase().includes(pedido.cliente.toLowerCase())
+        );
 
-                  (pedido.items || []).forEach((item) => {
-                    // Type assertion to prevent TypeScript errors
-                    const typedItem = item as AIItem;
-                    
-                    // Find matching product with proper type handling
-                    const productMatch = products.find(p => 
-                      p.id === typedItem.producto_id
-                    ) || products.find(p => 
-                      p.name.toLowerCase() === typedItem.producto.toLowerCase()
-                    );
-                    
-                    // Find variant match with proper type handling
-                    let variantMatch = null;
-                    if (productMatch && typedItem.variante_id) {
-                      variantMatch = productMatch.variants.find(v => v.id === typedItem.variante_id);
-                    } else if (productMatch && typedItem.variante) {
-                      variantMatch = productMatch.variants.find(v =>
-                        v.name.toLowerCase() === typedItem.variante.toLowerCase()
-                      );
-                    }
-                    
-                    // Create enhanced order item
-                    aiProcessedItems.push({
-                      clientName: pedido.cliente,
-                      productName: typedItem.producto,
-                      variantDescription: typedItem.variante || "",
-                      quantity: typedItem.cantidad,
-                      clientMatch: clientMatch || null,
-                      productMatch: productMatch || null,
-                      variantMatch: variantMatch || null,
-                      status: this.getItemStatus(typedItem.confianza, !!clientMatch, !!productMatch),
-                      issues: []
-                    });
-                  });
+        for (const item of pedido.items) {
+          // Find matching product
+          const productMatch = products.find(p => 
+            (item.producto_id && p.id === item.producto_id) || 
+            p.name.toLowerCase() === item.producto.toLowerCase()
+          );
+          
+          // Find variant match
+          let variantMatch: ProductVariant | null = null;
+          if (productMatch) {
+            if (item.variante_id) {
+              variantMatch = productMatch.variants.find(v => v.id === item.variante_id) || null;
+            } else if (item.variante) {
+              variantMatch = productMatch.variants.find(v =>
+                v.name.toLowerCase() === item.variante?.toLowerCase()
+              ) || null;
+            }
+          }
+          
+          // Create enhanced order item
+          aiProcessedItems.push({
+            clientName: pedido.cliente,
+            productName: item.producto,
+            variantDescription: item.variante || "",
+            quantity: item.cantidad,
+            clientMatch: clientMatch || null,
+            productMatch: productMatch || null,
+            variantMatch: variantMatch || null,
+            status: this.getItemStatus(item.confianza, !!clientMatch, !!productMatch),
+            issues: []
+          });
+        }
+      }
 
       // Update task progress to completed
       this.updateTaskProgress(taskId, 'completed', 100, 'success', aiProcessedItems);
@@ -351,17 +321,19 @@ class MessageProcessor {
 
   // Get item status based on confidence and matches
   private getItemStatus(
-    confidence: number,
+    confidence: string | undefined,
     hasClientMatch: boolean,
     hasProductMatch: boolean
-  ): 'pending' | 'confirmed' | 'unconfirmed' {
-    if (confidence > 0.8 && hasClientMatch && hasProductMatch) {
-      return 'confirmed';
-    } else if (confidence > 0.5) {
-      return 'pending';
-    } else {
-      return 'unconfirmed';
+  ): 'valid' | 'warning' | 'error' {
+    if (!hasClientMatch || !hasProductMatch) {
+      return 'error';
     }
+    
+    if (confidence === 'baja') {
+      return 'warning';
+    }
+    
+    return 'valid';
   }
 
   // Gets all tasks
@@ -373,16 +345,6 @@ class MessageProcessor {
   getTaskProgress(taskId: string): ProcessingProgress | null {
     return this.tasks.get(taskId) || null;
   }
-  
-  // Finds a task by message
-  findTaskByMessage(message: string): ProcessingProgress | null {
-    for (const task of this.tasks.values()) {
-      if (task.message === message) {
-        return task;
-      }
-    }
-    return null;
-  }
 
   // Gets the active task (most recent)
   getActiveTask(): ProcessingProgress | null {
@@ -391,18 +353,94 @@ class MessageProcessor {
       return null;
     }
     
-    // Sort tasks by start time in descending order
-    tasks.sort((a, b) => b.startTime.getTime() - a.startTime.getTime());
+    // Sort tasks by timestamp in descending order
+    tasks.sort((a, b) => b.timestamp - a.timestamp);
     
     return tasks[0];
   }
 
-  // Gets the sync status
-  getSyncStatus(): { isSyncing: boolean; lastSyncTime: Date | null } {
-    return {
-      isSyncing: this.isSyncing,
-      lastSyncTime: this.lastSyncTime,
-    };
+  // Save processing state to localStorage
+  private saveToStorage(): void {
+    try {
+      localStorage.setItem('ventascom_processing_tasks', JSON.stringify(Array.from(this.tasks.entries())));
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+  }
+
+  // Load processing state from localStorage
+  private loadFromStorage(): void {
+    try {
+      const stored = localStorage.getItem('ventascom_processing_tasks');
+      if (stored) {
+        const entries = JSON.parse(stored) as [string, ProcessingProgress][];
+        this.tasks = new Map(entries);
+      }
+    } catch (error) {
+      console.error('Error loading from localStorage:', error);
+    }
+  }
+
+  // Syncs tasks with Supabase
+  async syncWithSupabase(): Promise<void> {
+    if (this.isSyncing) {
+      console.log('Sync already in progress, skipping...');
+      return;
+    }
+
+    this.isSyncing = true;
+    console.log('Starting sync with Supabase...');
+
+    try {
+      // Retrieve tasks from Supabase
+      const { data, error } = await supabase
+        .from('processing_tasks')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error retrieving tasks from Supabase:', error);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        console.log('No tasks found in Supabase');
+        return;
+      }
+
+      // Convert database records to ProcessingProgress objects
+      for (const record of data) {
+        try {
+          const task: ProcessingProgress = {
+            id: record.id,
+            message: record.message,
+            stage: record.stage as ProcessingStage,
+            status: record.status as ProcessingStatus,
+            progress: record.progress,
+            timestamp: new Date(record.created_at).getTime(),
+            error: record.error,
+            result: record.result ? JSON.parse(record.result) : undefined,
+            synced: true
+          };
+
+          // Only update local task if it doesn't exist or is older
+          const existingTask = this.tasks.get(task.id);
+          if (!existingTask || existingTask.timestamp < task.timestamp) {
+            this.tasks.set(task.id, task);
+          }
+        } catch (parseError) {
+          console.error('Error parsing task from Supabase:', parseError);
+        }
+      }
+
+      this.saveToStorage();
+      this.lastSyncTime = new Date();
+      console.log(`Successfully synced ${data.length} tasks from Supabase.`);
+    } catch (error) {
+      console.error('Error syncing with Supabase:', error);
+    } finally {
+      this.isSyncing = false;
+    }
   }
 }
 

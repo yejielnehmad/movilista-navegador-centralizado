@@ -3,32 +3,11 @@ import { OrderItem } from "@/types/orders";
 import type { Database } from "@/integrations/supabase/types";
 import { Json } from "@/integrations/supabase/types";
 
-// Process state types
-export type ProcessingStage = 
-  | 'not_started'
-  | 'parsing'
-  | 'fetching_data'
-  | 'analyzing'
-  | 'ai_processing'
-  | 'grouping'
-  | 'validating'
-  | 'completed'
-  | 'failed';
+// Import ProcessingProgress type from the service to maintain compatibility
+import { ProcessingProgress, ProcessingStage, ProcessingStatus, ProgressListener } from "@/services/messageProcessingService";
 
-export interface ProcessingProgress {
-  id: string;
-  message: string;
-  stage: ProcessingStage;
-  progress: number; // 0-100
-  status: 'pending' | 'success' | 'error';
-  error?: string;
-  result?: OrderItem[];
-  raw?: any;
-  timestamp: number;
-  synced?: boolean; // Indicates if the task has been synced with Supabase
-}
-
-export type ProgressListener = (progress: ProcessingProgress) => void;
+// Re-export for backward compatibility
+export { ProcessingProgress, ProcessingStage, ProcessingStatus, ProgressListener };
 
 // Database storage model for task progress
 export interface ProcessingTaskRecord {
@@ -36,7 +15,7 @@ export interface ProcessingTaskRecord {
   message: string;
   stage: ProcessingStage;
   progress: number;
-  status: 'pending' | 'success' | 'error';
+  status: ProcessingStatus;
   error?: string;
   result?: OrderItem[];
   raw_response?: any;

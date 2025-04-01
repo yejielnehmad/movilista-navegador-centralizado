@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useMessageProcessing } from '@/contexts/MessageProcessingContext';
 import { Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ProcessingProgress, ProcessingStage } from '@/types/processingTypes';
+import { ProcessingProgress, ProcessingStage } from '@/services/messageProcessingService';
 
 const ProcessingStatusIndicator: React.FC = () => {
   const { registerGlobalListener } = useMessageProcessing();

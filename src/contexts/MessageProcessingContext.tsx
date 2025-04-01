@@ -1,13 +1,16 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { messageProcessor } from '@/services/messageProcessingService';
-import type { ProcessingProgress, ProgressListener } from '@/types/processingTypes';
+import type { ProgressListener } from '@/types/processingTypes';
 import { OrderItem } from '@/types/orders';
 import { useQuery } from '@tanstack/react-query';
 import { fetchClients } from '@/services/clientService';
 import { fetchProducts } from '@/services/productService';
 
 /* MessageProcessingContext manages background processing of order messages */
+
+// Import ProcessingProgress from the service directly to ensure type compatibility
+import type { ProcessingProgress } from '@/services/messageProcessingService'; 
 
 interface MessageProcessingContextType {
   // Process a new message and return the task ID
@@ -29,7 +32,7 @@ interface MessageProcessingContextType {
   isProcessing: boolean;
   
   // Register a new progress listener for app-wide updates
-  registerGlobalListener: (callback: ProgressListener) => () => void;
+  registerGlobalListener: (callback: (progress: ProcessingProgress) => void) => () => void;
   
   // Manually trigger a sync with Supabase
   syncWithSupabase: () => Promise<void>;
@@ -132,8 +135,8 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   };
   
   // Register a global listener for progress updates (app-wide)
-  const registerGlobalListener = (callback: ProgressListener): () => void => {
-    return messageProcessor.addGlobalProgressListener(callback);
+  const registerGlobalListener = (callback: (progress: ProcessingProgress) => void): () => void => {
+    return messageProcessor.addGlobalProgressListener(callback as any); // Type cast to resolve compatibility
   };
   
   // Manually trigger a sync with Supabase
@@ -165,7 +168,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
         if (progress.stage === 'completed' || progress.stage === 'failed') {
           setIsProcessing(false);
         }
-      }
+      } as any // Type cast to resolve compatibility
     );
     
     return unsubscribe;
