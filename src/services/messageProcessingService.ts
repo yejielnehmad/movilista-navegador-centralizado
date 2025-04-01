@@ -1,3 +1,4 @@
+
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -220,9 +221,9 @@ class MessageProcessingService {
             return `${product.name} (ID: ${product.id}) - Variantes: ${variants || "ninguna"}`;
           }).join('\n');
           
-          // Prepare a structured message for Gemini to analyze
+          // Improve the prompt to better handle multiple clients in a message
           const aiPrompt = `
-Eres un asistente especializado en procesar pedidos de tiendas. Analiza este mensaje de WhatsApp:
+Eres un asistente especializado en procesar pedidos de tiendas. Analiza este mensaje de WhatsApp y detecta TODOS los pedidos para DIFERENTES clientes:
 
 "${message}"
 
@@ -242,15 +243,16 @@ ${validatedItems.map(item =>
 
 INSTRUCCIONES:
 ==============
-1. Corrige nombres de clientes mal escritos, incompletos o con typos, usando la lista de clientes proporcionada
-2. Identifica productos mencionados que coincidan con los productos disponibles
-3. Detecta variantes de productos mencionadas o sugeridas en el contexto
-4. Infiere cantidades precisas y unidades de medida
-5. Agrupa múltiples pedidos del mismo cliente
+1. IMPORTANTE: Identifica TODOS los clientes diferentes mencionados en el mensaje
+2. Agrupa múltiples productos pedidos por el mismo cliente
+3. Corrige nombres de clientes mal escritos o con typos, usando la lista de clientes disponibles
+4. Identifica productos mencionados que coincidan con los productos disponibles
+5. Detecta variantes de productos mencionadas o sugeridas en el contexto
+6. Infiere cantidades precisas y unidades de medida
 
 FORMATO DE RESPUESTA:
 ====================
-Responde en formato JSON con este esquema:
+Responde en formato JSON con este esquema EXACTO:
 {
   "pedidos": [
     {
@@ -270,7 +272,10 @@ Responde en formato JSON con este esquema:
   ]
 }
 
-Responde SOLO con el JSON, sin texto introductorio ni conclusión.
+IMPORTANTE: 
+1. Cada cliente debe tener su propio objeto en el array "pedidos"
+2. Asegúrate de identificar TODOS los clientes mencionados en el mensaje
+3. Responde SOLO con el JSON, sin texto introductorio ni conclusión
           `;
           
           const aiContent = await geminiClient.generateContent(aiPrompt, { 
@@ -285,33 +290,48 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
             });
             
             try {
-              // Define a more specific interface for the AI response
+              // Define interfaces for the AI response structure
+              interface AIItem {
+                producto: string;
+                producto_id: string;
+                cantidad: number;
+                variante?: string;
+                variante_id?: string;
+                confianza?: string;
+              }
+              
               interface AIPedido {
                 cliente: string;
                 cliente_id: string;
-                items: Array<{
-                  producto: string;
-                  producto_id: string;
-                  cantidad: number;
-                  variante?: string;
-                  variante_id?: string;
-                  confianza?: string;
-                }>;
+                items: AIItem[];
               }
-
+              
               interface AIResponse {
                 pedidos: AIPedido[];
               }
               
-              // Parse with proper type assertion to ensure it's the expected structure
-              const aiResponse = JSON.parse(aiContent) as AIResponse;
+              // Clean the response before parsing
+              let cleanedResponse = aiContent.trim();
+              
+              // If the response is wrapped in backticks, remove them
+              if (cleanedResponse.startsWith("```json")) {
+                cleanedResponse = cleanedResponse.substring(7);
+              }
+              if (cleanedResponse.endsWith("```")) {
+                cleanedResponse = cleanedResponse.substring(0, cleanedResponse.length - 3);
+              }
+              
+              cleanedResponse = cleanedResponse.trim();
+              
+              // Parse with proper type assertion
+              const aiResponse = JSON.parse(cleanedResponse) as AIResponse;
               
               if (aiResponse.pedidos && Array.isArray(aiResponse.pedidos)) {
                 // Transform the AI's structured response back into OrderItems
                 const aiProcessedItems: OrderItem[] = [];
                 
                 aiResponse.pedidos.forEach((pedido) => {
-                  // Find matching client using type-safe comparisons
+                  // Find matching client
                   const clientMatch = clients.find(c => 
                     c.id === pedido.cliente_id
                   ) || clients.find(c => 
@@ -319,7 +339,7 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                   );
                   
                   (pedido.items || []).forEach((item) => {
-                    // Find matching product using type-safe comparisons
+                    // Find matching product
                     const productMatch = products.find(p => 
                       p.id === item.producto_id
                     ) || products.find(p => 

@@ -22,6 +22,7 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
+      staleTime: 1000 * 60 * 5, // 5 minutes
     },
   },
 });
@@ -30,7 +31,11 @@ function App() {
   // Verificar la conexión con Supabase al iniciar la aplicación
   useEffect(() => {
     const checkConnection = async () => {
-      await checkSupabaseConnection();
+      try {
+        await checkSupabaseConnection();
+      } catch (error) {
+        console.error("Error al comprobar conexión:", error);
+      }
     };
     
     checkConnection();

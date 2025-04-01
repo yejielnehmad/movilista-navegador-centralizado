@@ -69,6 +69,7 @@ const AIOrders: React.FC = () => {
       if (results.length > 0) {
         setParsedOrders(results);
         
+        // Group orders by client name for better display
         const grouped = groupOrdersByClientName(results);
         setGroupedOrders(grouped);
         
@@ -80,11 +81,15 @@ const AIOrders: React.FC = () => {
     }
   }, [activeTask, localProcessing]);
 
+  // Improved grouping function to handle multiple clients correctly
   const groupOrdersByClientName = (items: OrderItem[]): GroupedOrderItems[] => {
     const groupedByName: Record<string, OrderItem[]> = {};
     
     items.forEach(item => {
-      const clientKey = item.clientMatch?.name.toLowerCase() || item.clientName.toLowerCase();
+      // Use client match ID as primary key for grouping when available
+      const clientKey = item.clientMatch?.id 
+        ? `id_${item.clientMatch.id}` 
+        : item.clientMatch?.name.toLowerCase() || item.clientName.toLowerCase();
       
       if (!groupedByName[clientKey]) {
         groupedByName[clientKey] = [];
@@ -344,7 +349,7 @@ const AIOrders: React.FC = () => {
       <h1 className="text-2xl font-bold">Generar Pedidos con IA</h1>
       
       <p className="text-muted-foreground mb-6">
-        Ingresa un mensaje con los pedidos de tus clientes y la IA generará un pedido para cada uno.
+        Ingresa un mensaje con los pedidos de tus clientes y la IA detectará y agrupará los pedidos de cada cliente.
       </p>
       
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -431,87 +436,99 @@ const AIOrders: React.FC = () => {
             </TabsList>
             
             <TabsContent value="grouped" className="space-y-4 mt-4">
-              {groupedOrders.map((group, groupIndex) => (
-                <Card key={groupIndex} className="w-full overflow-hidden">
-                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">
-                        {group.clientMatch?.name || group.clientName}
-                      </CardTitle>
-                      <CardDescription>
-                        {group.items.length} {group.items.length === 1 ? 'producto' : 'productos'}
-                      </CardDescription>
-                    </div>
-                    <Badge 
-                      variant={
-                        group.status === 'error' ? 'destructive' :
-                        group.status === 'warning' ? 'default' : 'success'
-                      }
-                    >
-                      {group.status === 'error' ? 'Con Errores' : 
-                       group.status === 'warning' ? 'Revisar' : 'Listo'}
-                    </Badge>
-                  </CardHeader>
-                  
-                  <CardContent className="p-0">
-                    <div className="px-6 py-2 divide-y divide-gray-100">
-                      {group.items.map((item, itemIndex) => (
-                        <div 
-                          key={itemIndex} 
-                          className="py-2 flex justify-between items-center"
-                        >
-                          <div>
-                            <div className="font-medium">
-                              {item.productMatch?.name || item.productName}
-                              {item.status === 'error' && (
-                                <AlertTriangle className="h-4 w-4 text-destructive inline ml-2" />
-                              )}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {item.variantMatch?.name || item.variantDescription || 'Sin variante'}
-                            </div>
-                          </div>
-                          <div className="font-bold">{item.quantity}×</div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                  
-                  <CardFooter className="flex justify-end gap-2 pt-2 pb-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setActiveTab('itemized');
-                      }}
-                    >
-                      Editar
-                    </Button>
+              {groupedOrders.length > 0 ? (
+                groupedOrders.map((group, groupIndex) => (
+                  <Card key={groupIndex} className="w-full overflow-hidden">
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base">
+                          {group.clientMatch?.name || group.clientName}
+                        </CardTitle>
+                        <CardDescription>
+                          {group.items.length} {group.items.length === 1 ? 'producto' : 'productos'}
+                        </CardDescription>
+                      </div>
+                      <Badge 
+                        variant={
+                          group.status === 'error' ? 'destructive' :
+                          group.status === 'warning' ? 'default' : 'success'
+                        }
+                      >
+                        {group.status === 'error' ? 'Con Errores' : 
+                        group.status === 'warning' ? 'Revisar' : 'Listo'}
+                      </Badge>
+                    </CardHeader>
                     
-                    <Button
-                      size="sm"
-                      disabled={group.status === 'error' || group.items.some(i => !i.variantMatch)}
-                      onClick={() => handleConfirmGroup(groupIndex)}
-                    >
-                      <Check className="h-3 w-3 mr-1" />
-                      Confirmar
-                    </Button>
-                  </CardFooter>
-                </Card>
-              ))}
+                    <CardContent className="p-0">
+                      <div className="px-6 py-2 divide-y divide-gray-100">
+                        {group.items.map((item, itemIndex) => (
+                          <div 
+                            key={itemIndex} 
+                            className="py-2 flex justify-between items-center"
+                          >
+                            <div>
+                              <div className="font-medium">
+                                {item.productMatch?.name || item.productName}
+                                {item.status === 'error' && (
+                                  <AlertTriangle className="h-4 w-4 text-destructive inline ml-2" />
+                                )}
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                {item.variantMatch?.name || item.variantDescription || 'Sin variante'}
+                              </div>
+                            </div>
+                            <div className="font-bold">{item.quantity}×</div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                    
+                    <CardFooter className="flex justify-end gap-2 pt-2 pb-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setActiveTab('itemized');
+                        }}
+                      >
+                        Editar
+                      </Button>
+                      
+                      <Button
+                        size="sm"
+                        disabled={group.status === 'error' || group.items.some(i => !i.variantMatch)}
+                        onClick={() => handleConfirmGroup(groupIndex)}
+                      >
+                        <Check className="h-3 w-3 mr-1" />
+                        Confirmar
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No se han detectado pedidos por cliente aún
+                </div>
+              )}
             </TabsContent>
             
             <TabsContent value="itemized" className="space-y-4 mt-4">
-              {parsedOrders.map((item, index) => (
-                <OrderCard 
-                  key={index}
-                  item={item}
-                  allProducts={productsQuery.data || []}
-                  onUpdate={(updatedItem) => handleUpdateOrder(index, updatedItem)}
-                  onRemove={() => handleRemoveOrder(index)}
-                  onConfirm={() => handleConfirmOrder(index)}
-                />
-              ))}
+              {parsedOrders.length > 0 ? (
+                parsedOrders.map((item, index) => (
+                  <OrderCard 
+                    key={index}
+                    item={item}
+                    allProducts={productsQuery.data || []}
+                    onUpdate={(updatedItem) => handleUpdateOrder(index, updatedItem)}
+                    onRemove={() => handleRemoveOrder(index)}
+                    onConfirm={() => handleConfirmOrder(index)}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No se han detectado pedidos aún
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </div>
