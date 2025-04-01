@@ -59,7 +59,7 @@ class GeminiClient {
 
   constructor() {
     // Use hardcoded key as requested
-    this.apiKey = "AIzaSyAODux90Zf2iJnC8QGNuA-ab3BIbpwa2K0";
+    this.apiKey = "AIzaSyDY76G33xyON5Zp6Dypb7kplhzJbit02vQ";
   }
 
   // Register connection status listeners
