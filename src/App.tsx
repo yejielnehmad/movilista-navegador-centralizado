@@ -38,9 +38,9 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <GeminiProvider>
-        <MessageProcessingProvider>
-          <ThemeProvider defaultTheme="light" storageKey="ventascom-theme">
+      <ThemeProvider defaultTheme="light" storageKey="ventascom-theme">
+        <GeminiProvider>
+          <MessageProcessingProvider>
             <TooltipProvider>
               <BrowserRouter>
                 <Routes>
@@ -57,9 +57,9 @@ function App() {
                 <Sonner />
               </BrowserRouter>
             </TooltipProvider>
-          </ThemeProvider>
-        </MessageProcessingProvider>
-      </GeminiProvider>
+          </MessageProcessingProvider>
+        </GeminiProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
