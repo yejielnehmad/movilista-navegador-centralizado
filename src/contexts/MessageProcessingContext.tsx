@@ -9,8 +9,8 @@ import { fetchProducts } from '@/services/productService';
 
 /* MessageProcessingContext manages background processing of order messages */
 
-// Import ProcessingProgress from the service directly to ensure type compatibility
-import type { ProcessingProgress } from '@/services/messageProcessingService'; 
+// Import ProcessingProgress from the types directly to ensure type compatibility
+import type { ProcessingProgress } from '@/types/processingTypes'; 
 
 interface MessageProcessingContextType {
   // Process a new message and return the task ID
@@ -69,7 +69,8 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
       const currentActiveTask = messageProcessor.getActiveTask();
       if (currentActiveTask) {
         setActiveTaskId(currentActiveTask.id);
-        setActiveTask(currentActiveTask);
+        // Convert the service type to the context type if needed
+        setActiveTask(currentActiveTask as unknown as ProcessingProgress);
         
         // Update processing state
         setIsProcessing(
@@ -98,7 +99,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     if (existingTask && existingTask.stage === 'completed') {
       console.log('Using existing completed analysis for message:', message.substring(0, 50) + '...');
       setActiveTaskId(existingTask.id);
-      setActiveTask(existingTask);
+      setActiveTask(existingTask as unknown as ProcessingProgress);
       setIsProcessing(false);
       return existingTask.id;
     }
@@ -117,12 +118,12 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
 
   // Get all tasks
   const getAllTasks = (): ProcessingProgress[] => {
-    return messageProcessor.getAllTasks();
+    return messageProcessor.getAllTasks() as unknown as ProcessingProgress[];
   };
 
   // Get a specific task's progress
   const getTaskProgress = (taskId: string): ProcessingProgress | null => {
-    return messageProcessor.getTaskProgress(taskId);
+    return messageProcessor.getTaskProgress(taskId) as unknown as ProcessingProgress | null;
   };
 
   // Get the results of a task if available
@@ -136,7 +137,10 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   
   // Register a global listener for progress updates (app-wide)
   const registerGlobalListener = (callback: (progress: ProcessingProgress) => void): () => void => {
-    return messageProcessor.addGlobalProgressListener(callback as any); // Type cast to resolve compatibility
+    // Use type casting to handle the type differences
+    return messageProcessor.addGlobalProgressListener((progress) => {
+      callback(progress as unknown as ProcessingProgress);
+    });
   };
   
   // Manually trigger a sync with Supabase
@@ -156,19 +160,19 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     if (!activeTaskId) return;
     
     // Initial set
-    setActiveTask(messageProcessor.getTaskProgress(activeTaskId));
+    setActiveTask(messageProcessor.getTaskProgress(activeTaskId) as unknown as ProcessingProgress);
     
     // Subscribe to updates
     const unsubscribe = messageProcessor.addProgressListener(
       activeTaskId,
       (progress) => {
-        setActiveTask(progress);
+        setActiveTask(progress as unknown as ProcessingProgress);
         
         // Update processing status
         if (progress.stage === 'completed' || progress.stage === 'failed') {
           setIsProcessing(false);
         }
-      } as any // Type cast to resolve compatibility
+      }
     );
     
     return unsubscribe;
