@@ -8,6 +8,26 @@ import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
 import { toast } from "sonner";
 
+// Define interfaces for the AI response structure
+interface AIItem {
+  producto: string;
+  producto_id: string;
+  cantidad: number;
+  variante?: string;
+  variante_id?: string;
+  confianza?: string;
+}
+
+interface AIPedido {
+  cliente: string;
+  cliente_id: string;
+  items: AIItem[];
+}
+
+interface AIResponse {
+  pedidos: AIPedido[];
+}
+
 // Create a singleton class for message processing
 class MessageProcessingService {
   private processingTasks: Record<string, ProcessingProgress> = {};
@@ -289,26 +309,6 @@ IMPORTANTE:
             });
             
             try {
-              // Define interfaces for the AI response structure
-              interface AIItem {
-                producto: string;
-                producto_id: string;
-                cantidad: number;
-                variante?: string;
-                variante_id?: string;
-                confianza?: string;
-              }
-              
-              interface AIPedido {
-                cliente: string;
-                cliente_id: string;
-                items: AIItem[];
-              }
-              
-              interface AIResponse {
-                pedidos: AIPedido[];
-              }
-              
               // Clean the response before parsing
               let cleanedResponse = aiContent.trim();
               
