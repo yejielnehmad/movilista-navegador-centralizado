@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useGemini } from '@/contexts/GeminiContext';
 import { GeminiConnectionStatus } from '@/services/gemini';
@@ -21,22 +20,12 @@ import OrderCard from '@/components/orders/OrderCard';
 import { toast } from 'sonner';
 import { saveOrder } from '@/services/orderService';
 import { useNavigate } from 'react-router-dom';
-import { MessageProcessingProvider, useMessageProcessing } from '@/contexts/MessageProcessingContext';
+import { useMessageProcessing } from '@/contexts/MessageProcessingContext';
 import MessageProcessingProgress from '@/components/orders/MessageProcessingProgress';
 import { parseMessyOrderMessage, validateAndMatchOrders, groupOrdersByClient } from '@/utils/advancedOrderParser';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Wrapper component that provides the MessageProcessingProvider
-const AIOrdersPage: React.FC = () => {
-  return (
-    <MessageProcessingProvider>
-      <AIOrders />
-    </MessageProcessingProvider>
-  );
-};
-
-// Main component
 const AIOrders: React.FC = () => {
   const { generateContent, connectionStatus } = useGemini();
   const { 
@@ -55,7 +44,6 @@ const AIOrders: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('itemized');
   const navigate = useNavigate();
 
-  // Fetch products and clients data
   const productsQuery = useQuery({
     queryKey: ['products'],
     queryFn: fetchProducts
@@ -66,27 +54,22 @@ const AIOrders: React.FC = () => {
     queryFn: fetchClients
   });
 
-  // Update parsed orders when active task completes
   useEffect(() => {
     if (activeTask?.stage === 'completed' && activeTask?.status === 'success') {
       const results = activeTask.result || [];
       if (results.length > 0) {
         setParsedOrders(results);
         
-        // Group orders by client
         const grouped = groupOrdersByClientName(results);
         setGroupedOrders(grouped);
       }
     }
   }, [activeTask]);
 
-  // Group orders by client name
   const groupOrdersByClientName = (items: OrderItem[]): GroupedOrderItems[] => {
     const groupedByName: Record<string, OrderItem[]> = {};
     
-    // Group by normalized client name
     items.forEach(item => {
-      // Use client match name if available, otherwise use detected name
       const clientKey = item.clientMatch?.name.toLowerCase() || item.clientName.toLowerCase();
       
       if (!groupedByName[clientKey]) {
@@ -96,12 +79,9 @@ const AIOrders: React.FC = () => {
       groupedByName[clientKey].push(item);
     });
     
-    // Convert to array of GroupedOrderItems
     return Object.entries(groupedByName).map(([_, clientItems]) => {
-      // Use first item's client info
       const firstItem = clientItems[0];
       
-      // Determine worst status in the group
       let worstStatus: 'valid' | 'warning' | 'error' = 'valid';
       if (clientItems.some(item => item.status === 'error')) {
         worstStatus = 'error';
@@ -118,23 +98,19 @@ const AIOrders: React.FC = () => {
     });
   };
 
-  // Handle submission of the message
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!message.trim() || localProcessing || isProcessing) return;
     
-    // Clear previous results
     setParsedOrders([]);
     setGroupedOrders([]);
     
     setLocalProcessing(true);
     
     try {
-      // Process using the advanced background processing service
       await processNewMessage(message);
       
-      // Do quick local processing for immediate feedback
       if (productsQuery.data && clientsQuery.data) {
         const quickParsedItems = parseMessyOrderMessage(message);
         const quickValidatedItems = validateAndMatchOrders(
@@ -143,10 +119,8 @@ const AIOrders: React.FC = () => {
           productsQuery.data
         );
         
-        // Update state with quick results
         setParsedOrders(quickValidatedItems);
         
-        // Group quick results
         const quickGrouped = groupOrdersByClientName(quickValidatedItems);
         setGroupedOrders(quickGrouped);
       }
@@ -158,13 +132,11 @@ const AIOrders: React.FC = () => {
     }
   };
 
-  // Update a specific order item
   const handleUpdateOrder = (index: number, updatedItem: OrderItem) => {
     setParsedOrders(current => 
       current.map((item, i) => i === index ? updatedItem : item)
     );
     
-    // Update grouped orders
     setGroupedOrders(current => {
       return current.map(group => {
         const updatedItems = group.items.map(item => {
@@ -176,7 +148,6 @@ const AIOrders: React.FC = () => {
           return item;
         });
         
-        // Recalculate group status
         let status: 'valid' | 'warning' | 'error' = 'valid';
         if (updatedItems.some(item => item.status === 'error')) {
           status = 'error';
@@ -193,7 +164,6 @@ const AIOrders: React.FC = () => {
     });
   };
 
-  // Remove an order item
   const handleRemoveOrder = (index: number) => {
     const itemToRemove = parsedOrders[index];
     
@@ -201,7 +171,6 @@ const AIOrders: React.FC = () => {
       current.filter((_, i) => i !== index)
     );
     
-    // Update grouped orders
     setGroupedOrders(current => {
       const newGroups = current.map(group => {
         const filteredItems = group.items.filter(item => 
@@ -210,7 +179,6 @@ const AIOrders: React.FC = () => {
             item.quantity === itemToRemove.quantity)
         );
         
-        // Recalculate group status
         let status: 'valid' | 'warning' | 'error' = 'valid';
         if (filteredItems.some(item => item.status === 'error')) {
           status = 'error';
@@ -225,12 +193,10 @@ const AIOrders: React.FC = () => {
         };
       });
       
-      // Remove empty groups
       return newGroups.filter(group => group.items.length > 0);
     });
   };
 
-  // Confirm an order
   const handleConfirmOrder = (index: number) => {
     const itemToConfirm = parsedOrders[index];
     
@@ -239,14 +205,11 @@ const AIOrders: React.FC = () => {
       return;
     }
     
-    // Add to confirmed orders
     setConfirmedOrders(current => [...current, itemToConfirm]);
     
-    // Remove from parsed orders
     handleRemoveOrder(index);
   };
 
-  // Confirm all valid items in a group
   const handleConfirmGroup = (groupIndex: number) => {
     const group = groupedOrders[groupIndex];
     const validItems = group.items.filter(
@@ -258,27 +221,21 @@ const AIOrders: React.FC = () => {
       return;
     }
     
-    // Add to confirmed orders
     setConfirmedOrders(current => [...current, ...validItems]);
     
-    // Remove from parsed orders & grouped orders
     const itemsToRemove = new Set(validItems);
     
     setParsedOrders(current => 
       current.filter(item => !itemsToRemove.has(item))
     );
     
-    // Update grouped orders
     setGroupedOrders(current => {
-      // Update the specific group
       const newGroups = [...current];
       const remainingItems = group.items.filter(item => !validItems.includes(item));
       
       if (remainingItems.length === 0) {
-        // Remove the entire group if empty
         newGroups.splice(groupIndex, 1);
       } else {
-        // Update the group with remaining items
         let status: 'valid' | 'warning' | 'error' = 'valid';
         if (remainingItems.some(item => item.status === 'error')) {
           status = 'error';
@@ -299,7 +256,6 @@ const AIOrders: React.FC = () => {
     toast.success(`${validItems.length} pedidos confirmados`);
   };
 
-  // Save confirmed orders to database
   const handleSaveOrders = async () => {
     if (confirmedOrders.length === 0) {
       toast.error("No hay pedidos para guardar");
@@ -309,7 +265,6 @@ const AIOrders: React.FC = () => {
     setSavingOrders(true);
 
     try {
-      // Group orders by client
       const ordersByClient = new Map<string, OrderItem[]>();
       
       confirmedOrders.forEach(order => {
@@ -325,7 +280,6 @@ const AIOrders: React.FC = () => {
         ordersByClient.get(clientId)?.push(order);
       });
 
-      // Save each client's orders
       const savePromises: Promise<any>[] = [];
       
       ordersByClient.forEach((items, clientId) => {
@@ -336,7 +290,6 @@ const AIOrders: React.FC = () => {
       setConfirmedOrders([]);
       toast.success("Pedidos guardados con éxito");
       
-      // Navigate to orders page
       navigate('/orders');
     } catch (error) {
       console.error("Error saving orders:", error);
@@ -393,14 +346,12 @@ const AIOrders: React.FC = () => {
         </Alert>
       )}
       
-      {/* Processing progress indicator */}
       {activeTask && activeTask.stage !== 'completed' && (
         <div className="my-4">
           <MessageProcessingProgress progress={activeTask} />
         </div>
       )}
       
-      {/* Display extracted orders - Tabbed view */}
       {(parsedOrders.length > 0 || groupedOrders.length > 0) && (
         <div className="mt-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -520,7 +471,6 @@ const AIOrders: React.FC = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        // Move to individual view to edit
                         setActiveTab('itemized');
                       }}
                     >
@@ -543,7 +493,6 @@ const AIOrders: React.FC = () => {
         </div>
       )}
       
-      {/* Display confirmed orders */}
       {confirmedOrders.length > 0 && (
         <Card className="mt-6 border rounded-lg overflow-hidden">
           <CardHeader className="pb-0">
@@ -608,4 +557,4 @@ const AIOrders: React.FC = () => {
   );
 };
 
-export default AIOrdersPage;
+export default AIOrders;
