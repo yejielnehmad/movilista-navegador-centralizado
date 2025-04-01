@@ -5,6 +5,12 @@ import { supabase } from '@/lib/supabase';
 import { OrderItem } from '@/types/orders';
 import { Client } from '@/types/orders';
 import { ProductWithVariants, ProductVariant } from '@/services/productService';
+import { 
+  ProcessingProgress, 
+  ProcessingStage, 
+  ProcessingStatus, 
+  ProgressListener 
+} from '@/types/processingTypes';
 
 /* Message Processing Service
  *
@@ -32,34 +38,6 @@ interface AIPedido {
 interface AIResponse {
   pedidos: AIPedido[];
 }
-
-// Define types for task management
-export type ProcessingStage =
-  | 'not_started'
-  | 'parsing'
-  | 'analyzing'
-  | 'ai_processing'
-  | 'validating'
-  | 'grouping'
-  | 'completed'
-  | 'failed';
-
-export type ProcessingStatus = 'pending' | 'success' | 'error';
-
-export type ProcessingProgress = {
-  id: string;
-  message: string;
-  stage: ProcessingStage;
-  status: ProcessingStatus;
-  progress: number;
-  timestamp: number;
-  synced?: boolean;
-  result?: OrderItem[];
-  error?: string;
-  raw?: any;
-};
-
-export type ProgressListener = (progress: ProcessingProgress) => void;
 
 // MessageProcessor class
 class MessageProcessor {
@@ -125,7 +103,7 @@ class MessageProcessor {
       id: taskId,
       message: message,
       stage: 'parsing',
-      status: 'pending',
+      status: 'processing',
       progress: 0,
       timestamp: Date.now(),
     };

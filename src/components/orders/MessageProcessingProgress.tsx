@@ -15,17 +15,17 @@ const getStageLabel = (stage: ProcessingStage): string => {
   switch (stage) {
     case 'not_started': return 'Iniciando...';
     case 'parsing': return 'Analizando texto...';
-    case 'fetching_data': return 'Obteniendo datos...';
     case 'analyzing': return 'Detectando patrones...';
     case 'ai_processing': return 'Mejorando con IA...';
     case 'validating': return 'Validando resultados...';
+    case 'grouping': return 'Organizando resultados...';
     case 'completed': return 'Análisis completado';
     case 'failed': return 'Error en el análisis';
     default: return 'Procesando...';
   }
 };
 
-const getStageIcon = (stage: ProcessingStage, status: 'pending' | 'success' | 'error'): JSX.Element => {
+const getStageIcon = (stage: ProcessingStage, status: 'idle' | 'processing' | 'success' | 'error'): JSX.Element => {
   if (status === 'error') {
     return <AlertCircle className="h-4 w-4 text-destructive" />;
   }

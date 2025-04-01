@@ -5,6 +5,7 @@ import { Json } from "@/integrations/supabase/types";
 
 // Define the ProcessingStage type (stages of message processing)
 export type ProcessingStage = 
+  | 'not_started'
   | 'parsing'
   | 'analyzing'
   | 'ai_processing'
@@ -30,7 +31,8 @@ export interface ProcessingProgress {
   error?: string;
   result?: OrderItem[];
   raw_response?: any;
-  timestamp: number; // Added timestamp property
+  timestamp: number;
+  synced?: boolean;
 }
 
 // Progress listener type

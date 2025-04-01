@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useMessageProcessing } from '@/contexts/MessageProcessingContext';
 import { Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ProcessingProgress, ProcessingStage } from '@/services/messageProcessingService';
+import { ProcessingProgress, ProcessingStage } from '@/types/processingTypes';
 
 const ProcessingStatusIndicator: React.FC = () => {
   const { registerGlobalListener } = useMessageProcessing();
@@ -29,7 +29,7 @@ const ProcessingStatusIndicator: React.FC = () => {
       <Badge variant="secondary" className="px-3 py-2 flex items-center gap-2">
         {currentTask.status === 'error' ? (
           <AlertTriangle className="h-4 w-4 text-destructive" />
-        ) : (currentTask.stage as string) === 'completed' ? (
+        ) : (currentTask.stage === 'completed') ? (
           <CheckCircle className="h-4 w-4 text-success" />
         ) : (
           <Loader2 className="h-4 w-4 animate-spin" />

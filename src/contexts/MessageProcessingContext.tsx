@@ -1,16 +1,13 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { messageProcessor } from '@/services/messageProcessingService';
-import type { ProgressListener } from '@/types/processingTypes';
+import { ProcessingProgress, ProgressListener } from '@/types/processingTypes';
 import { OrderItem } from '@/types/orders';
 import { useQuery } from '@tanstack/react-query';
 import { fetchClients } from '@/services/clientService';
 import { fetchProducts } from '@/services/productService';
 
 /* MessageProcessingContext manages background processing of order messages */
-
-// Import ProcessingProgress from the types directly to ensure type compatibility
-import type { ProcessingProgress } from '@/types/processingTypes'; 
 
 interface MessageProcessingContextType {
   // Process a new message and return the task ID
@@ -32,7 +29,7 @@ interface MessageProcessingContextType {
   isProcessing: boolean;
   
   // Register a new progress listener for app-wide updates
-  registerGlobalListener: (callback: (progress: ProcessingProgress) => void) => () => void;
+  registerGlobalListener: (callback: ProgressListener) => () => void;
   
   // Manually trigger a sync with Supabase
   syncWithSupabase: () => Promise<void>;
@@ -69,8 +66,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
       const currentActiveTask = messageProcessor.getActiveTask();
       if (currentActiveTask) {
         setActiveTaskId(currentActiveTask.id);
-        // Convert the service type to the context type if needed
-        setActiveTask(currentActiveTask as unknown as ProcessingProgress);
+        setActiveTask(currentActiveTask);
         
         // Update processing state
         setIsProcessing(
@@ -99,7 +95,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     if (existingTask && existingTask.stage === 'completed') {
       console.log('Using existing completed analysis for message:', message.substring(0, 50) + '...');
       setActiveTaskId(existingTask.id);
-      setActiveTask(existingTask as unknown as ProcessingProgress);
+      setActiveTask(existingTask);
       setIsProcessing(false);
       return existingTask.id;
     }
@@ -118,12 +114,12 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
 
   // Get all tasks
   const getAllTasks = (): ProcessingProgress[] => {
-    return messageProcessor.getAllTasks() as unknown as ProcessingProgress[];
+    return messageProcessor.getAllTasks();
   };
 
   // Get a specific task's progress
   const getTaskProgress = (taskId: string): ProcessingProgress | null => {
-    return messageProcessor.getTaskProgress(taskId) as unknown as ProcessingProgress | null;
+    return messageProcessor.getTaskProgress(taskId);
   };
 
   // Get the results of a task if available
@@ -136,11 +132,8 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   };
   
   // Register a global listener for progress updates (app-wide)
-  const registerGlobalListener = (callback: (progress: ProcessingProgress) => void): () => void => {
-    // Use type casting to handle the type differences
-    return messageProcessor.addGlobalProgressListener((progress) => {
-      callback(progress as unknown as ProcessingProgress);
-    });
+  const registerGlobalListener = (callback: ProgressListener): () => void => {
+    return messageProcessor.addGlobalProgressListener(callback);
   };
   
   // Manually trigger a sync with Supabase
@@ -160,13 +153,13 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     if (!activeTaskId) return;
     
     // Initial set
-    setActiveTask(messageProcessor.getTaskProgress(activeTaskId) as unknown as ProcessingProgress);
+    setActiveTask(messageProcessor.getTaskProgress(activeTaskId));
     
     // Subscribe to updates
     const unsubscribe = messageProcessor.addProgressListener(
       activeTaskId,
       (progress) => {
-        setActiveTask(progress as unknown as ProcessingProgress);
+        setActiveTask(progress);
         
         // Update processing status
         if (progress.stage === 'completed' || progress.stage === 'failed') {
