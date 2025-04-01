@@ -70,7 +70,6 @@ class MessageProcessingService {
     this.messageToTaskIdMap.clear();
     
     Object.values(this.processingTasks).forEach(task => {
-      // Normalize message by trimming whitespace
       const normalizedMessage = task.message.trim();
       this.messageToTaskIdMap.set(normalizedMessage, task.id);
     });
@@ -80,7 +79,6 @@ class MessageProcessingService {
    * Find an existing task by message content
    */
   public findTaskByMessage(message: string): ProcessingProgress | null {
-    // Normalize message by trimming whitespace
     const normalizedMessage = message.trim();
     const taskId = this.messageToTaskIdMap.get(normalizedMessage);
     
@@ -88,7 +86,6 @@ class MessageProcessingService {
       return this.processingTasks[taskId];
     }
     
-    // If not found in map, do a full search (less efficient)
     return Object.values(this.processingTasks).find(task => 
       task.message.trim() === normalizedMessage
     ) || null;
@@ -102,7 +99,6 @@ class MessageProcessingService {
     clients: Client[], 
     products: ProductWithVariants[]
   ): Promise<string> {
-    // Check if we already have a task for this exact message
     const existingTask = this.findTaskByMessage(message);
 
     if (existingTask) {
@@ -110,23 +106,19 @@ class MessageProcessingService {
       this.activeTaskId = existingTask.id;
       this.notifyListeners(existingTask.id);
       
-      // If task is still in progress, return without reprocessing
       if (existingTask.stage !== 'completed' && existingTask.stage !== 'failed') {
         return existingTask.id;
       }
       
-      // If task is completed or failed, we can return it immediately
       if (existingTask.stage === 'completed') {
         console.log('Using existing completed task without reprocessing');
         return existingTask.id;
       }
     }
     
-    // Generate a unique ID for this processing task
     const taskId = uuidv4();
     this.activeTaskId = taskId;
     
-    // Initialize progress tracking
     const initialProgress: ProcessingProgress = {
       id: taskId,
       message,
@@ -142,7 +134,6 @@ class MessageProcessingService {
     this.saveToStorage();
     this.notifyListeners(taskId);
     
-    // Start processing in background, but avoid creating multiple overlapping API calls
     if (!this.pendingApiCalls.has(taskId)) {
       const processingPromise = this.processingLoop(taskId, message, clients, products)
         .catch(error => {
@@ -174,27 +165,23 @@ class MessageProcessingService {
     products: ProductWithVariants[]
   ): Promise<void> {
     try {
-      // Stage 1: Initial parsing with improved tolerance
       this.updateProgress(taskId, {
         stage: 'parsing', 
         progress: 10,
         status: 'pending'
       });
       
-      // Perform more thorough pattern matching with higher tolerance
       const parsedItems = parseMessyOrderMessage(message, { 
         tolerateTypos: true,
         detectPartialNames: true 
       });
       
-      // Stage 2: Pre-match to find potential clients
       this.updateProgress(taskId, {
         stage: 'analyzing',
         progress: 30,
         status: 'pending'
       });
       
-      // For each item, find potential client matches
       const itemsWithClientSuggestions = parsedItems.map(item => {
         const potentialClients = findSimilarClients(item.clientName, clients);
         return {
@@ -203,17 +190,14 @@ class MessageProcessingService {
         };
       });
       
-      // Stage 3: Validate against database with enhanced matching
       this.updateProgress(taskId, {
         stage: 'validating',
         progress: 50,
         status: 'pending'
       });
       
-      // Match with clients and products using improved fuzzy matching
       const validatedItems = validateAndMatchOrders(itemsWithClientSuggestions, clients, products);
       
-      // Save the basic matching results immediately so we have something to show
       this.updateProgress(taskId, {
         stage: 'ai_processing',
         progress: 70,
@@ -221,13 +205,10 @@ class MessageProcessingService {
         result: validatedItems
       });
       
-      // Stage 4: AI enhancement (use Gemini if connected)
       let enhancedItems = validatedItems;
       
       try {
-        // Only use AI if we have some items already detected and Gemini is available
         if (validatedItems.length > 0 && geminiClient.getConnectionStatus() === GeminiConnectionStatus.CONNECTED) {
-          // Create a context-aware prompt with client and product data
           const clientContext = clients.map(client => 
             `${client.name} (ID: ${client.id})`
           ).join(', ');
@@ -240,7 +221,6 @@ class MessageProcessingService {
             return `${product.name} (ID: ${product.id}) - Variantes: ${variants || "ninguna"}`;
           }).join('\n');
           
-          // Improve the prompt to better handle multiple clients in a message
           const aiPrompt = `
 Eres un asistente especializado en procesar pedidos de tiendas. Analiza este mensaje de WhatsApp y detecta TODOS los pedidos para DIFERENTES clientes:
 
@@ -303,16 +283,13 @@ IMPORTANTE:
           });
           
           if (aiContent) {
-            // Store AI response for debugging purposes
             this.updateProgress(taskId, {
               raw: aiContent
             });
             
             try {
-              // Clean the response before parsing
               let cleanedResponse = aiContent.trim();
               
-              // If the response is wrapped in backticks, remove them
               if (cleanedResponse.startsWith("```json")) {
                 cleanedResponse = cleanedResponse.substring(7);
               }
@@ -322,15 +299,12 @@ IMPORTANTE:
               
               cleanedResponse = cleanedResponse.trim();
               
-              // Parse with proper type assertion
               const aiResponse = JSON.parse(cleanedResponse) as AIResponse;
               
               if (aiResponse.pedidos && Array.isArray(aiResponse.pedidos)) {
-                // Transform the AI's structured response back into OrderItems
                 const aiProcessedItems: OrderItem[] = [];
                 
                 aiResponse.pedidos.forEach((pedido) => {
-                  // Find matching client
                   const clientMatch = clients.find(c => 
                     c.id === pedido.cliente_id
                   ) || clients.find(c => 
@@ -338,7 +312,6 @@ IMPORTANTE:
                   );
                   
                   (pedido.items || []).forEach((item) => {
-                    // Find matching product
                     const productMatch = products.find(p => 
                       p.id === item.producto_id
                     ) || products.find(p => 
@@ -346,31 +319,16 @@ IMPORTANTE:
                     );
                     
                     let variantMatch = null;
-                    if (productMatch && item.variante_id) {
-                      // FIX: Tipar explícitamente el item para evitar errores TS2339
-const typedItem = item as {
-  producto_id?: string;
-  producto: string;
-  variante_id?: string;
-  variante?: string;
-};
-
-const productMatch = products.find(p =>
-  p.id === typedItem.producto_id
-) || products.find(p =>
-  p.name.toLowerCase() === typedItem.producto.toLowerCase()
-);
-
-let variantMatch = null;
-if (productMatch && typedItem.variante_id) {
-  variantMatch = productMatch.variants.find(v => v.id === typedItem.variante_id);
-} else if (productMatch && typedItem.variante) {
-  variantMatch = productMatch.variants.find(v =>
-    v.name.toLowerCase() === typedItem.variante.toLowerCase()
-  );
-}
+                    if (productMatch) {
+                      if (item.variante_id) {
+                        variantMatch = productMatch.variants.find(v => v.id === item.variante_id);
+                      } else if (item.variante) {
+                        variantMatch = productMatch.variants.find(v =>
+                          v.name.toLowerCase() === item.variante!.toLowerCase()
+                        );
+                      }
+                    }
                     
-                    // Create enhanced order item
                     aiProcessedItems.push({
                       clientName: pedido.cliente,
                       productName: item.producto,
@@ -385,14 +343,12 @@ if (productMatch && typedItem.variante_id) {
                   });
                 });
                 
-                // If we successfully parsed items, use them instead
                 if (aiProcessedItems.length > 0) {
                   enhancedItems = aiProcessedItems;
                 }
               }
             } catch (parseError) {
               console.warn('Error parsing AI response:', parseError);
-              // Fall back to basic detection if JSON parsing fails
             }
           }
         } else {
@@ -401,17 +357,14 @@ if (productMatch && typedItem.variante_id) {
         }
       } catch (aiError) {
         console.warn('AI enhancement failed, but continuing with basic detection:', aiError);
-        // Continue with basic detection without AI enhancement
       }
       
-      // Group items by client for better organization
       this.updateProgress(taskId, {
         stage: 'grouping',
         progress: 90,
         status: 'pending'
       });
       
-      // Return the enhanced and grouped items
       this.updateProgress(taskId, {
         stage: 'completed',
         progress: 100,
@@ -419,7 +372,6 @@ if (productMatch && typedItem.variante_id) {
         result: enhancedItems
       });
       
-      // Save to Supabase
       this.saveTaskToSupabase(this.processingTasks[taskId])
         .catch(error => console.error('Error saving completed task to Supabase:', error));
       
@@ -432,7 +384,6 @@ if (productMatch && typedItem.variante_id) {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       
-      // Save the error state to Supabase
       this.saveTaskToSupabase(this.processingTasks[taskId])
         .catch(error => console.error('Error saving failed task to Supabase:', error));
     }
@@ -461,15 +412,12 @@ if (productMatch && typedItem.variante_id) {
    * Resume any active task from storage
    */
   private resumeActiveTask(): void {
-    // Find the most recent incomplete task
     const tasks = Object.values(this.processingTasks);
     
     if (tasks.length === 0) return;
     
-    // Sort by timestamp (newest first)
     const sortedTasks = tasks.sort((a, b) => b.timestamp - a.timestamp);
     
-    // Find the most recent task that's not completed or failed
     const latestActiveTask = sortedTasks.find(task => 
       task.stage !== 'completed' && task.stage !== 'failed'
     );
@@ -477,7 +425,6 @@ if (productMatch && typedItem.variante_id) {
     if (latestActiveTask) {
       this.activeTaskId = latestActiveTask.id;
     } else {
-      // If no active tasks, set the most recent completed task
       this.activeTaskId = sortedTasks[0]?.id || null;
     }
   }
@@ -513,7 +460,6 @@ if (productMatch && typedItem.variante_id) {
     
     this.listeners[taskId].push(listener);
     
-    // Return cleanup function
     return () => {
       if (this.listeners[taskId]) {
         this.listeners[taskId] = this.listeners[taskId].filter(l => l !== listener);
@@ -525,10 +471,8 @@ if (productMatch && typedItem.variante_id) {
    * Add a global listener for any task updates (useful for UI progress indicators)
    */
   public addGlobalProgressListener(listener: ProgressListener): () => void {
-    // Add to global listeners set
     this.globalListeners.add(listener);
     
-    // Immediately notify with current active task if available
     if (this.activeTaskId && this.processingTasks[this.activeTaskId]) {
       try {
         listener(this.processingTasks[this.activeTaskId]);
@@ -537,7 +481,6 @@ if (productMatch && typedItem.variante_id) {
       }
     }
     
-    // Return cleanup function
     return () => {
       this.globalListeners.delete(listener);
     };
@@ -551,7 +494,7 @@ if (productMatch && typedItem.variante_id) {
       this.processingTasks[taskId] = {
         ...this.processingTasks[taskId],
         ...update,
-        synced: false // Mark as needing sync
+        synced: false
       };
       
       this.saveToStorage();
@@ -566,7 +509,6 @@ if (productMatch && typedItem.variante_id) {
     const progress = this.processingTasks[taskId];
     if (!progress) return;
     
-    // Notify task-specific listeners
     if (this.listeners[taskId]) {
       this.listeners[taskId].forEach(listener => {
         try {
@@ -577,7 +519,6 @@ if (productMatch && typedItem.variante_id) {
       });
     }
     
-    // Notify global listeners
     this.globalListeners.forEach(listener => {
       try {
         listener(progress);
@@ -639,7 +580,7 @@ if (productMatch && typedItem.variante_id) {
     });
     
     if (hasChanges) {
-      this.buildMessageToTaskIdMap(); // Rebuild message map
+      this.buildMessageToTaskIdMap();
       this.saveToStorage();
     }
   }
@@ -648,10 +589,9 @@ if (productMatch && typedItem.variante_id) {
    * Save a task to Supabase
    */
   private async saveTaskToSupabase(task: ProcessingProgress): Promise<void> {
-    if (task.synced) return; // Skip if already synced
-
+    if (task.synced) return;
+    
     try {
-      // Use the RPC function to upsert a task
       const { data, error } = await supabase.rpc('upsert_processing_task', {
         p_id: task.id,
         p_message: task.message,
@@ -666,7 +606,6 @@ if (productMatch && typedItem.variante_id) {
       if (error) {
         console.error('Error saving task to Supabase:', error);
       } else {
-        // Mark as synced in local storage
         this.processingTasks[task.id].synced = true;
         this.saveToStorage();
         console.log('Task saved to Supabase:', task.id);
@@ -681,7 +620,6 @@ if (productMatch && typedItem.variante_id) {
    */
   private async loadTasksFromSupabase(): Promise<void> {
     try {
-      // Check if the RPC functions exist first
       const { data: functionExists, error: functionCheckError } = await supabase
         .rpc('check_processing_functions_exist');
         
@@ -690,7 +628,6 @@ if (productMatch && typedItem.variante_id) {
         return;
       }
       
-      // Use the RPC function to get tasks
       const { data, error } = await supabase.rpc('get_processing_tasks', {
         limit_count: 20
       });
@@ -702,7 +639,6 @@ if (productMatch && typedItem.variante_id) {
       
       if (!Array.isArray(data) || data.length === 0) return;
       
-      // Convert to our internal format
       const loadedTasks: Record<string, ProcessingProgress> = {};
       
       data.forEach((record: any) => {
@@ -726,22 +662,18 @@ if (productMatch && typedItem.variante_id) {
         }
       });
       
-      // Merge with local tasks, preferring newer data
       const mergedTasks: Record<string, ProcessingProgress> = { ...this.processingTasks };
       
       Object.entries(loadedTasks).forEach(([id, task]) => {
-        // If we don't have this task locally, or the server version is newer
         if (!mergedTasks[id] || mergedTasks[id].timestamp < task.timestamp) {
           mergedTasks[id] = task;
         }
       });
       
-      // Update our state
       this.processingTasks = mergedTasks;
-      this.buildMessageToTaskIdMap(); // Rebuild message map
+      this.buildMessageToTaskIdMap();
       this.saveToStorage();
       
-      // Update active task if needed
       if (this.activeTaskId && loadedTasks[this.activeTaskId]) {
         this.notifyListeners(this.activeTaskId);
       }
@@ -764,7 +696,6 @@ if (productMatch && typedItem.variante_id) {
     this.isSyncingWithSupabase = true;
     
     try {
-      // First check if the RPC functions exist
       const { data: functionExists, error: functionCheckError } = await supabase
         .rpc('check_processing_functions_exist');
         
@@ -774,7 +705,6 @@ if (productMatch && typedItem.variante_id) {
         return;
       }
       
-      // First push any unsaved tasks
       const unsyncedTasks = Object.values(this.processingTasks).filter(task => !task.synced);
       
       if (unsyncedTasks.length > 0) {
@@ -784,7 +714,6 @@ if (productMatch && typedItem.variante_id) {
         }
       }
       
-      // Then pull latest data
       await this.loadTasksFromSupabase();
     } catch (error) {
       console.error('Error syncing with Supabase:', error);
@@ -811,5 +740,4 @@ if (productMatch && typedItem.variante_id) {
   }
 }
 
-// Export singleton instance
 export const messageProcessor = new MessageProcessingService();
