@@ -347,12 +347,28 @@ IMPORTANTE:
                     
                     let variantMatch = null;
                     if (productMatch && item.variante_id) {
-                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id);
-                    } else if (productMatch && item.variante) {
-                      variantMatch = productMatch.variants.find(v => 
-                        v.name.toLowerCase() === item.variante.toLowerCase()
-                      );
-                    }
+                      // FIX: Tipar explícitamente el item para evitar errores TS2339
+const typedItem = item as {
+  producto_id?: string;
+  producto: string;
+  variante_id?: string;
+  variante?: string;
+};
+
+const productMatch = products.find(p =>
+  p.id === typedItem.producto_id
+) || products.find(p =>
+  p.name.toLowerCase() === typedItem.producto.toLowerCase()
+);
+
+let variantMatch = null;
+if (productMatch && typedItem.variante_id) {
+  variantMatch = productMatch.variants.find(v => v.id === typedItem.variante_id);
+} else if (productMatch && typedItem.variante) {
+  variantMatch = productMatch.variants.find(v =>
+    v.name.toLowerCase() === typedItem.variante.toLowerCase()
+  );
+}
                     
                     // Create enhanced order item
                     aiProcessedItems.push({
