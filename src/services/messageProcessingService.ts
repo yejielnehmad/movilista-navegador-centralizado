@@ -434,19 +434,17 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
     if (task.synced) return; // Skip if already synced
     
     try {
-      const { data, error } = await supabase
-        .from('processing_tasks')
-        .upsert({
-          id: task.id,
-          message: task.message,
-          stage: task.stage,
-          progress: task.progress,
-          status: task.status,
-          error: task.error,
-          result: task.result ? JSON.stringify(task.result) : null,
-          raw_response: task.raw ? JSON.stringify(task.raw) : null,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
+      // Use raw query for now since we don't have the proper types
+      const { data, error } = await supabase.rpc('upsert_processing_task', {
+        p_id: task.id,
+        p_message: task.message,
+        p_stage: task.stage,
+        p_progress: task.progress,
+        p_status: task.status,
+        p_error: task.error,
+        p_result: task.result ? JSON.stringify(task.result) : null,
+        p_raw_response: task.raw ? JSON.stringify(task.raw) : null
+      });
         
       if (error) {
         console.error('Error saving task to Supabase:', error);
@@ -465,11 +463,10 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    */
   private async loadTasksFromSupabase(): Promise<void> {
     try {
-      const { data, error } = await supabase
-        .from('processing_tasks')
-        .select('*')
-        .order('updated_at', { ascending: false })
-        .limit(20);
+      // Use raw query for now since we don't have the proper types
+      const { data, error } = await supabase.rpc('get_processing_tasks', {
+        limit_count: 20
+      });
         
       if (error) {
         console.error('Error loading tasks from Supabase:', error);
@@ -481,16 +478,16 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
       // Convert to our internal format
       const loadedTasks: Record<string, ProcessingProgress> = {};
       
-      data.forEach((record: ProcessingTaskRecord) => {
+      data.forEach((record: any) => {
         loadedTasks[record.id] = {
           id: record.id,
           message: record.message,
-          stage: record.stage,
+          stage: record.stage as ProcessingStage,
           progress: record.progress,
-          status: record.status,
+          status: record.status as 'pending' | 'success' | 'error',
           error: record.error,
-          result: record.result ? JSON.parse(record.result as unknown as string) : undefined,
-          raw: record.raw_response ? JSON.parse(record.raw_response as unknown as string) : undefined,
+          result: record.result ? JSON.parse(record.result) : undefined,
+          raw: record.raw_response ? JSON.parse(record.raw_response) : undefined,
           timestamp: new Date(record.created_at).getTime(),
           synced: true
         };
@@ -527,6 +524,15 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
     this.isSyncingWithSupabase = true;
     
     try {
+      // First check if the RPC functions exist
+      const { data: functionExists, error: functionCheckError } = await supabase
+        .rpc('check_processing_functions_exist');
+        
+      if (functionCheckError || !functionExists) {
+        console.log('Processing task functions do not exist yet, skipping sync');
+        return;
+      }
+      
       // First push any unsaved tasks
       const unsyncedTasks = Object.values(this.processingTasks).filter(task => !task.synced);
       

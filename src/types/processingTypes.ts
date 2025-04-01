@@ -1,5 +1,7 @@
 
-import { OrderItem } from '@/types/orders';
+import { OrderItem } from "@/types/orders";
+import type { Database } from "@/integrations/supabase/types";
+import { Json } from "@/integrations/supabase/types";
 
 // Process state types
 export type ProcessingStage = 
