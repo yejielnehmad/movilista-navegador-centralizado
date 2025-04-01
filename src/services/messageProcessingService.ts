@@ -1,3 +1,4 @@
+
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -285,7 +286,7 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
             });
             
             try {
-              // Define the expected shape of the AI response for better type checking
+              // Define a more specific interface for the AI response
               interface AIPedido {
                 cliente: string;
                 cliente_id: string;
@@ -313,7 +314,7 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                 aiResponse.pedidos.forEach((pedido) => {
                   // Find matching client using type-safe comparisons
                   const clientMatch = clients.find(c => 
-                    c.id === pedido.cliente_id as string
+                    c.id === pedido.cliente_id
                   ) || clients.find(c => 
                     c.name.toLowerCase() === pedido.cliente.toLowerCase()
                   );
@@ -321,17 +322,17 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                   (pedido.items || []).forEach((item) => {
                     // Find matching product using type-safe comparisons
                     const productMatch = products.find(p => 
-                      p.id === item.producto_id as string
+                      p.id === item.producto_id
                     ) || products.find(p => 
                       p.name.toLowerCase() === item.producto.toLowerCase()
                     );
                     
                     let variantMatch = null;
                     if (productMatch && item.variante_id) {
-                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id as string);
+                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id);
                     } else if (productMatch && item.variante) {
                       variantMatch = productMatch.variants.find(v => 
-                        v.name.toLowerCase() === item.variante!.toLowerCase()
+                        v.name.toLowerCase() === item.variante.toLowerCase()
                       );
                     }
                     
