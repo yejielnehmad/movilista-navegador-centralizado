@@ -1,5 +1,5 @@
 
-import React, { useEffect } from "react";
+import React from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,6 +16,7 @@ import NotFound from "@/pages/NotFound";
 import { checkSupabaseConnection } from "@/lib/supabase";
 import { GeminiProvider } from "@/contexts/GeminiContext";
 import { MessageProcessingProvider } from "@/contexts/MessageProcessingContext";
+import ProcessingStatusIndicator from "@/components/ProcessingStatusIndicator";
 
 // Create a new QueryClient instance outside of component
 const queryClient = new QueryClient({
@@ -29,8 +30,8 @@ const queryClient = new QueryClient({
 });
 
 function App() {
-  // Check Supabase connection when the app starts
-  useEffect(() => {
+  // Use React.useEffect instead of useEffect directly
+  React.useEffect(() => {
     const checkConnection = async () => {
       try {
         await checkSupabaseConnection();
@@ -59,6 +60,7 @@ function App() {
                     <Route path="*" element={<NotFound />} />
                   </Route>
                 </Routes>
+                <ProcessingStatusIndicator />
                 <Toaster />
                 <Sonner />
               </BrowserRouter>
