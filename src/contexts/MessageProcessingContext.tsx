@@ -1,153 +1,135 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { messageProcessor, ProcessingProgress, ProcessingStage } from '@/services/messageProcessingService';
+import * as React from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { messageProcessor } from '@/services/messageProcessingService';
+import type { ProcessingProgress } from '@/types/processingTypes';
 import { OrderItem } from '@/types/orders';
 import { useQuery } from '@tanstack/react-query';
 import { fetchClients } from '@/services/clientService';
 import { fetchProducts } from '@/services/productService';
-import { toast } from 'sonner';
+
+/* MessageProcessingContext manages background processing of order messages */
 
 interface MessageProcessingContextType {
-  processTasks: ProcessingProgress[];
-  activeTask: ProcessingProgress | null;
-  isProcessing: boolean;
+  // Process a new message and return the task ID
   processNewMessage: (message: string) => Promise<string>;
-  getTaskById: (id: string) => ProcessingProgress | null;
-  getTaskResults: (id: string) => OrderItem[] | null;
-  cancelTask: (id: string) => void;
+  
+  // Get all processing tasks
+  getAllTasks: () => ProcessingProgress[];
+  
+  // Get a specific task's progress
+  getTaskProgress: (taskId: string) => ProcessingProgress | null;
+  
+  // Get a specific task's results (if available)
+  getTaskResults: (taskId: string) => OrderItem[] | null;
+  
+  // The currently active task (most recent)
+  activeTask: ProcessingProgress | null;
+  
+  // Whether any task is currently processing
+  isProcessing: boolean;
 }
 
 const MessageProcessingContext = createContext<MessageProcessingContextType | undefined>(undefined);
 
-export const MessageProcessingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [processTasks, setProcessTasks] = useState<ProcessingProgress[]>([]);
+export function MessageProcessingProvider({ children }: { children: React.ReactNode }) {
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [activeTask, setActiveTask] = useState<ProcessingProgress | null>(null);
-  
-  // Pre-fetch clients and products for background processing
+
+  // Fetch clients and products for processing
   const clientsQuery = useQuery({
     queryKey: ['clients'],
-    queryFn: fetchClients
+    queryFn: fetchClients,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
   
   const productsQuery = useQuery({
     queryKey: ['products'],
-    queryFn: fetchProducts
+    queryFn: fetchProducts,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
-  
-  // Load tasks on mount
-  useEffect(() => {
-    const allTasks = messageProcessor.getAllTasks();
-    setProcessTasks(allTasks);
-    
-    // Set active task to the most recent non-completed task
-    const pendingTasks = allTasks.filter(task => 
-      task.status === 'pending' || 
-      (task.status === 'success' && task.stage !== 'completed')
-    );
-    
-    if (pendingTasks.length > 0) {
-      // Sort by timestamp to get most recent
-      const mostRecent = pendingTasks.sort((a, b) => b.timestamp - a.timestamp)[0];
-      setActiveTask(mostRecent);
-    }
-  }, []);
-  
-  // Subscribe to progress updates for all tasks
-  useEffect(() => {
-    const unsubscribers = processTasks.map(task => {
-      return messageProcessor.addProgressListener(task.id, (updatedProgress) => {
-        // Update specific task
-        setProcessTasks(current => 
-          current.map(t => t.id === updatedProgress.id ? updatedProgress : t)
-        );
-        
-        // Update active task if this is it
-        if (activeTask?.id === updatedProgress.id) {
-          setActiveTask(updatedProgress);
-        }
-        
-        // Show toast notifications for important events
-        if (updatedProgress.stage === 'completed' && updatedProgress.status === 'success') {
-          const itemCount = updatedProgress.result?.length || 0;
-          toast.success(`Análisis completado: ${itemCount} pedidos detectados`);
-        } else if (updatedProgress.status === 'error') {
-          toast.error(`Error en el análisis: ${updatedProgress.error || 'Error desconocido'}`);
-        }
-      });
-    });
-    
-    return () => {
-      unsubscribers.forEach(unsub => unsub());
-    };
-  }, [processTasks, activeTask]);
-  
+
   // Process a new message
-  const processNewMessage = useCallback(async (message: string): Promise<string> => {
+  const processNewMessage = async (message: string): Promise<string> => {
     if (!clientsQuery.data || !productsQuery.data) {
-      throw new Error('No se pueden procesar pedidos sin datos de clientes y productos');
+      throw new Error('Clients and products data must be loaded before processing');
     }
     
     const taskId = await messageProcessor.processMessage(
-      message,
-      clientsQuery.data,
+      message, 
+      clientsQuery.data, 
       productsQuery.data
     );
     
-    // Add new task to state
-    const newTask = messageProcessor.getTaskProgress(taskId);
-    if (newTask) {
-      setProcessTasks(current => [...current, newTask]);
-      setActiveTask(newTask);
-    }
+    setActiveTaskId(taskId);
+    setIsProcessing(true);
     
     return taskId;
-  }, [clientsQuery.data, productsQuery.data]);
-  
-  // Get a specific task by ID
-  const getTaskById = useCallback((id: string): ProcessingProgress | null => {
-    return messageProcessor.getTaskProgress(id);
-  }, []);
-  
-  // Get results for a specific task
-  const getTaskResults = useCallback((id: string): OrderItem[] | null => {
-    const task = messageProcessor.getTaskProgress(id);
-    return task?.result || null;
-  }, []);
-  
-  // Cancel a processing task (not currently implemented in service)
-  const cancelTask = useCallback((id: string): void => {
-    // Future implementation could cancel the task
-    console.log('Task cancellation not implemented yet:', id);
-  }, []);
-  
-  // Determine if any processing is happening
-  const isProcessing = processTasks.some(task => 
-    task.status === 'pending' && task.stage !== 'completed' && task.stage !== 'failed'
-  );
-  
-  const contextValue = {
-    processTasks,
+  };
+
+  // Get all tasks
+  const getAllTasks = (): ProcessingProgress[] => {
+    return messageProcessor.getAllTasks();
+  };
+
+  // Get a specific task's progress
+  const getTaskProgress = (taskId: string): ProcessingProgress | null => {
+    return messageProcessor.getTaskProgress(taskId);
+  };
+
+  // Get the results of a task if available
+  const getTaskResults = (taskId: string): OrderItem[] | null => {
+    const task = messageProcessor.getTaskProgress(taskId);
+    if (task?.stage === 'completed' && task?.status === 'success' && task?.result) {
+      return task.result;
+    }
+    return null;
+  };
+
+  // Monitor active task
+  useEffect(() => {
+    if (!activeTaskId) return;
+    
+    // Initial set
+    setActiveTask(messageProcessor.getTaskProgress(activeTaskId));
+    
+    // Subscribe to updates
+    const unsubscribe = messageProcessor.addProgressListener(
+      activeTaskId,
+      (progress) => {
+        setActiveTask(progress);
+        
+        // Update processing status
+        if (progress.stage === 'completed' || progress.stage === 'failed') {
+          setIsProcessing(false);
+        }
+      }
+    );
+    
+    return unsubscribe;
+  }, [activeTaskId]);
+
+  const value = {
+    processNewMessage,
+    getAllTasks,
+    getTaskProgress,
+    getTaskResults,
     activeTask,
     isProcessing,
-    processNewMessage,
-    getTaskById,
-    getTaskResults,
-    cancelTask
   };
-  
+
   return (
-    <MessageProcessingContext.Provider value={contextValue}>
+    <MessageProcessingContext.Provider value={value}>
       {children}
     </MessageProcessingContext.Provider>
   );
-};
+}
 
-export const useMessageProcessing = () => {
+export const useMessageProcessing = (): MessageProcessingContextType => {
   const context = useContext(MessageProcessingContext);
-  
   if (context === undefined) {
     throw new Error('useMessageProcessing must be used within a MessageProcessingProvider');
   }
-  
   return context;
 };
