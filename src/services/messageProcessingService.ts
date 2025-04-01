@@ -1,29 +1,43 @@
+
 import { OrderItem } from "@/types/orders";
-import { ProcessingProgress, ProcessingStage, ProgressListener } from "@/types/processingTypes";
+import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
 import { ProductWithVariants } from "@/services/productService";
 import { Client } from "@/services/clientService";
-import { geminiClient } from "@/services/gemini";
+import { geminiClient, GeminiConnectionStatus } from "@/services/gemini";
 import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/lib/supabase';
+import { toast } from "sonner";
 
 // Create a singleton class for message processing
 class MessageProcessingService {
   private processingTasks: Record<string, ProcessingProgress> = {};
   private listeners: Record<string, ProgressListener[]> = {};
+  private globalListeners: Set<ProgressListener> = new Set();
   private storageKey = 'ventascom_processing_tasks';
   private activeTaskId: string | null = null;
+  private pendingApiCalls: Map<string, Promise<any>> = new Map();
+  private isSyncingWithSupabase: boolean = false;
   
   constructor() {
     this.loadFromStorage();
     
     // Set up event listeners for background sync
-    window.addEventListener('online', () => this.syncWithBackend());
+    window.addEventListener('online', () => this.syncWithSupabase());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.syncWithSupabase();
+      }
+    });
     
     // Cleanup completed tasks older than 24 hours
     this.cleanupOldTasks();
     
     // Get the most recent active task if any
     this.resumeActiveTask();
+
+    // Initial sync with Supabase
+    this.syncWithSupabase();
   }
   
   /**
@@ -34,6 +48,19 @@ class MessageProcessingService {
     clients: Client[], 
     products: ProductWithVariants[]
   ): Promise<string> {
+    // Check if we already have a task for this exact message
+    const existingTask = Object.values(this.processingTasks).find(task => 
+      task.message === message && 
+      (task.stage === 'completed' || task.stage === 'ai_processing')
+    );
+
+    if (existingTask) {
+      console.log('Using existing task for message:', message);
+      this.activeTaskId = existingTask.id;
+      this.notifyListeners(existingTask.id);
+      return existingTask.id;
+    }
+    
     // Generate a unique ID for this processing task
     const taskId = uuidv4();
     this.activeTaskId = taskId;
@@ -45,24 +72,32 @@ class MessageProcessingService {
       stage: 'not_started',
       progress: 0,
       status: 'pending',
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      synced: false
     };
     
     this.processingTasks[taskId] = initialProgress;
     this.saveToStorage();
     this.notifyListeners(taskId);
     
-    // Start processing in background
-    this.processingLoop(taskId, message, clients, products)
-      .catch(error => {
-        console.error('Processing error:', error);
-        this.updateProgress(taskId, {
-          stage: 'failed',
-          progress: 100,
-          status: 'error',
-          error: error.message || 'Unknown error occurred'
+    // Start processing in background, but avoid creating multiple overlapping API calls
+    if (!this.pendingApiCalls.has(taskId)) {
+      const processingPromise = this.processingLoop(taskId, message, clients, products)
+        .catch(error => {
+          console.error('Processing error:', error);
+          this.updateProgress(taskId, {
+            stage: 'failed',
+            progress: 100,
+            status: 'error',
+            error: error.message || 'Unknown error occurred'
+          });
+        })
+        .finally(() => {
+          this.pendingApiCalls.delete(taskId);
         });
-      });
+        
+      this.pendingApiCalls.set(taskId, processingPromise);
+    }
     
     return taskId;
   }
@@ -116,19 +151,20 @@ class MessageProcessingService {
       // Match with clients and products using improved fuzzy matching
       const validatedItems = validateAndMatchOrders(itemsWithClientSuggestions, clients, products);
       
-      // Stage 4: AI enhancement (use Gemini if connected)
+      // Save the basic matching results immediately so we have something to show
       this.updateProgress(taskId, {
         stage: 'ai_processing',
         progress: 70,
-        status: 'pending'
+        status: 'pending',
+        result: validatedItems
       });
       
-      // If we have Gemini connected, use it to improve analysis
+      // Stage 4: AI enhancement (use Gemini if connected)
       let enhancedItems = validatedItems;
       
       try {
         // Only use AI if we have some items already detected and Gemini is available
-        if (validatedItems.length > 0) {
+        if (validatedItems.length > 0 && geminiClient.getConnectionStatus() === GeminiConnectionStatus.CONNECTED) {
           // Prepare a structured message for Gemini to analyze
           const aiPrompt = `
 Analiza este mensaje de WhatsApp con pedidos: "${message}"
@@ -159,14 +195,18 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
               raw: aiContent
             });
             
-            // Process AI suggestions (in a real implementation, we'd parse the AI's response 
-            // and update the items accordingly)
+            // In a real implementation, we'd parse the AI's response 
+            // and update the items accordingly
             // For now, just use the validated items
           }
+        } else {
+          console.log('Skipping AI enhancement:', 
+            validatedItems.length === 0 ? 'No valid items detected' : 'Gemini not connected');
         }
       } catch (aiError) {
         console.warn('AI enhancement failed, but continuing with basic detection:', aiError);
         // Continue with basic detection without AI enhancement
+        // Don't mark the whole process as failed
       }
       
       // Group items by client for better organization
@@ -184,6 +224,9 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
         result: enhancedItems
       });
       
+      // Save to Supabase
+      this.saveTaskToSupabase(this.processingTasks[taskId]);
+      
     } catch (error) {
       console.error('Error in processing loop:', error);
       this.updateProgress(taskId, {
@@ -192,6 +235,9 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error'
       });
+      
+      // Save the error state to Supabase
+      this.saveTaskToSupabase(this.processingTasks[taskId]);
     }
   }
   
@@ -263,32 +309,21 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    * Add a global listener for any task updates (useful for UI progress indicators)
    */
   public addGlobalProgressListener(listener: ProgressListener): () => void {
-    // Create a wrapper function that will be called for any task update
-    const wrappedListener = (progress: ProcessingProgress) => {
-      listener(progress);
-    };
+    // Add to global listeners set
+    this.globalListeners.add(listener);
     
-    // Store the mapping of global listener to wrapped listener
-    const globalListenerMap = new Map<ProgressListener, ProgressListener>();
-    
-    globalListenerMap.set(listener, wrappedListener);
-    
-    // Add the wrapped listener to all existing tasks
-    Object.keys(this.processingTasks).forEach(taskId => {
-      if (!this.listeners[taskId]) {
-        this.listeners[taskId] = [];
+    // Immediately notify with current active task if available
+    if (this.activeTaskId && this.processingTasks[this.activeTaskId]) {
+      try {
+        listener(this.processingTasks[this.activeTaskId]);
+      } catch (error) {
+        console.error('Error in global progress listener:', error);
       }
-      this.listeners[taskId].push(wrappedListener);
-    });
+    }
     
     // Return cleanup function
     return () => {
-      // Remove the wrapped listener from all tasks
-      Object.keys(this.listeners).forEach(taskId => {
-        this.listeners[taskId] = this.listeners[taskId].filter(l => l !== globalListenerMap.get(listener));
-      });
-      
-      globalListenerMap.delete(listener);
+      this.globalListeners.delete(listener);
     };
   }
   
@@ -299,7 +334,8 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
     if (this.processingTasks[taskId]) {
       this.processingTasks[taskId] = {
         ...this.processingTasks[taskId],
-        ...update
+        ...update,
+        synced: false // Mark as needing sync
       };
       
       this.saveToStorage();
@@ -312,15 +348,27 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    */
   private notifyListeners(taskId: string): void {
     const progress = this.processingTasks[taskId];
-    if (progress && this.listeners[taskId]) {
+    if (!progress) return;
+    
+    // Notify task-specific listeners
+    if (this.listeners[taskId]) {
       this.listeners[taskId].forEach(listener => {
         try {
           listener(progress);
         } catch (error) {
-          console.error('Error in progress listener:', error);
+          console.error('Error in task progress listener:', error);
         }
       });
     }
+    
+    // Notify global listeners
+    this.globalListeners.forEach(listener => {
+      try {
+        listener(progress);
+      } catch (error) {
+        console.error('Error in global progress listener:', error);
+      }
+    });
   }
   
   /**
@@ -380,11 +428,121 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
   }
   
   /**
-   * Sync pending tasks with backend when online
+   * Save a task to Supabase
    */
-  private async syncWithBackend(): Promise<void> {
-    // Placeholder for future implementation
-    // Could send pending tasks to Supabase when online
+  private async saveTaskToSupabase(task: ProcessingProgress): Promise<void> {
+    if (task.synced) return; // Skip if already synced
+    
+    try {
+      const { data, error } = await supabase
+        .from('processing_tasks')
+        .upsert({
+          id: task.id,
+          message: task.message,
+          stage: task.stage,
+          progress: task.progress,
+          status: task.status,
+          error: task.error,
+          result: task.result ? JSON.stringify(task.result) : null,
+          raw_response: task.raw ? JSON.stringify(task.raw) : null,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+        
+      if (error) {
+        console.error('Error saving task to Supabase:', error);
+      } else {
+        // Mark as synced in local storage
+        this.processingTasks[task.id].synced = true;
+        this.saveToStorage();
+      }
+    } catch (err) {
+      console.error('Exception saving task to Supabase:', err);
+    }
+  }
+  
+  /**
+   * Load tasks from Supabase
+   */
+  private async loadTasksFromSupabase(): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('processing_tasks')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(20);
+        
+      if (error) {
+        console.error('Error loading tasks from Supabase:', error);
+        return;
+      }
+      
+      if (!data || data.length === 0) return;
+      
+      // Convert to our internal format
+      const loadedTasks: Record<string, ProcessingProgress> = {};
+      
+      data.forEach((record: ProcessingTaskRecord) => {
+        loadedTasks[record.id] = {
+          id: record.id,
+          message: record.message,
+          stage: record.stage,
+          progress: record.progress,
+          status: record.status,
+          error: record.error,
+          result: record.result ? JSON.parse(record.result as unknown as string) : undefined,
+          raw: record.raw_response ? JSON.parse(record.raw_response as unknown as string) : undefined,
+          timestamp: new Date(record.created_at).getTime(),
+          synced: true
+        };
+      });
+      
+      // Merge with local tasks, preferring newer data
+      const mergedTasks: Record<string, ProcessingProgress> = { ...this.processingTasks };
+      
+      Object.entries(loadedTasks).forEach(([id, task]) => {
+        // If we don't have this task locally, or the server version is newer
+        if (!mergedTasks[id] || mergedTasks[id].timestamp < task.timestamp) {
+          mergedTasks[id] = task;
+        }
+      });
+      
+      // Update our state
+      this.processingTasks = mergedTasks;
+      this.saveToStorage();
+      
+      // Update active task if needed
+      if (this.activeTaskId && loadedTasks[this.activeTaskId]) {
+        this.notifyListeners(this.activeTaskId);
+      }
+    } catch (err) {
+      console.error('Exception loading tasks from Supabase:', err);
+    }
+  }
+  
+  /**
+   * Sync with Supabase (push local changes, pull remote changes)
+   */
+  public async syncWithSupabase(): Promise<void> {
+    if (this.isSyncingWithSupabase) return;
+    this.isSyncingWithSupabase = true;
+    
+    try {
+      // First push any unsaved tasks
+      const unsyncedTasks = Object.values(this.processingTasks).filter(task => !task.synced);
+      
+      if (unsyncedTasks.length > 0) {
+        for (const task of unsyncedTasks) {
+          await this.saveTaskToSupabase(task);
+        }
+      }
+      
+      // Then pull latest data
+      await this.loadTasksFromSupabase();
+    } catch (error) {
+      console.error('Error syncing with Supabase:', error);
+    } finally {
+      this.isSyncingWithSupabase = false;
+    }
   }
 }
 

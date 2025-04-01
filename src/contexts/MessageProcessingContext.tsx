@@ -30,6 +30,9 @@ interface MessageProcessingContextType {
   
   // Register a new progress listener for app-wide updates
   registerGlobalListener: (callback: ProgressListener) => () => void;
+  
+  // Manually trigger a sync with Supabase
+  syncWithSupabase: () => Promise<void>;
 }
 
 const MessageProcessingContext = createContext<MessageProcessingContextType | undefined>(undefined);
@@ -66,6 +69,16 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
         currentActiveTask.stage !== 'failed'
       );
     }
+    
+    // Trigger sync with Supabase
+    messageProcessor.syncWithSupabase();
+    
+    // Set up periodic sync
+    const syncInterval = setInterval(() => {
+      messageProcessor.syncWithSupabase();
+    }, 60000); // Sync every minute
+    
+    return () => clearInterval(syncInterval);
   }, []);
 
   // Process a new message
@@ -109,6 +122,11 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   const registerGlobalListener = (callback: ProgressListener): () => void => {
     return messageProcessor.addGlobalProgressListener(callback);
   };
+  
+  // Manually trigger a sync with Supabase
+  const syncWithSupabase = async (): Promise<void> => {
+    return messageProcessor.syncWithSupabase();
+  };
 
   // Monitor active task
   useEffect(() => {
@@ -141,6 +159,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     activeTask,
     isProcessing,
     registerGlobalListener,
+    syncWithSupabase,
   };
 
   return (
