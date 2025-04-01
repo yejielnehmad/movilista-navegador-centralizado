@@ -285,18 +285,36 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
             });
             
             try {
-              // Attempt to parse the AI's JSON response
-              const aiResponse = JSON.parse(aiContent);
+              // Define the expected shape of the AI response for better type checking
+              interface AIPedido {
+                cliente: string;
+                cliente_id: string;
+                items: Array<{
+                  producto: string;
+                  producto_id: string;
+                  cantidad: number;
+                  variante?: string;
+                  variante_id?: string;
+                  confianza?: string;
+                }>;
+              }
+
+              interface AIResponse {
+                pedidos: AIPedido[];
+              }
+              
+              // Parse with type assertion to the expected interface
+              const aiResponse = JSON.parse(aiContent) as AIResponse;
               
               if (aiResponse.pedidos && Array.isArray(aiResponse.pedidos)) {
                 // Transform the AI's structured response back into OrderItems
                 const aiProcessedItems: OrderItem[] = [];
                 
-                aiResponse.pedidos.forEach((pedido: any) => {
+                aiResponse.pedidos.forEach((pedido) => {
                   const clientMatch = clients.find(c => c.id === pedido.cliente_id) || 
                                       clients.find(c => c.name.toLowerCase() === pedido.cliente.toLowerCase());
                   
-                  (pedido.items || []).forEach((item: any) => {
+                  (pedido.items || []).forEach((item) => {
                     const productMatch = products.find(p => p.id === item.producto_id) ||
                                          products.find(p => p.name.toLowerCase() === item.producto.toLowerCase());
                     
