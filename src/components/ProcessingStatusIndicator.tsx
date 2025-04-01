@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useMessageProcessing } from '@/contexts/MessageProcessingContext';
 import { Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ProcessingProgress } from '@/types/processingTypes';
+import { ProcessingProgress, ProcessingStage } from '@/types/processingTypes';
 
 const ProcessingStatusIndicator: React.FC = () => {
   const { registerGlobalListener } = useMessageProcessing();
@@ -17,7 +17,9 @@ const ProcessingStatusIndicator: React.FC = () => {
     return unsubscribe;
   }, [registerGlobalListener]);
   
-  if (!currentTask || currentTask.stage === 'completed' || currentTask.stage === 'failed') {
+  if (!currentTask || 
+      currentTask.stage === 'completed' || 
+      currentTask.stage === 'failed') {
     return null;
   }
   

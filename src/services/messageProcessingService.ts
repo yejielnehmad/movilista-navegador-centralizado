@@ -432,20 +432,20 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    */
   private async saveTaskToSupabase(task: ProcessingProgress): Promise<void> {
     if (task.synced) return; // Skip if already synced
-    
+
     try {
-      // Use raw query for now since we don't have the proper types
+      // Use the RPC function to upsert a task
       const { data, error } = await supabase.rpc('upsert_processing_task', {
         p_id: task.id,
         p_message: task.message,
         p_stage: task.stage,
         p_progress: task.progress,
         p_status: task.status,
-        p_error: task.error,
+        p_error: task.error || null,
         p_result: task.result ? JSON.stringify(task.result) : null,
         p_raw_response: task.raw ? JSON.stringify(task.raw) : null
       });
-        
+      
       if (error) {
         console.error('Error saving task to Supabase:', error);
       } else {
@@ -463,7 +463,7 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
    */
   private async loadTasksFromSupabase(): Promise<void> {
     try {
-      // Use raw query for now since we don't have the proper types
+      // Use the RPC function to get tasks
       const { data, error } = await supabase.rpc('get_processing_tasks', {
         limit_count: 20
       });

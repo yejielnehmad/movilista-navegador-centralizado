@@ -65,6 +65,45 @@ export type Database = {
           },
         ]
       }
+      processing_tasks: {
+        Row: {
+          created_at: string
+          error: string | null
+          id: string
+          message: string
+          progress: number
+          raw_response: Json | null
+          result: Json | null
+          stage: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          id: string
+          message: string
+          progress: number
+          raw_response?: Json | null
+          result?: Json | null
+          stage: string
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          message?: string
+          progress?: number
+          raw_response?: Json | null
+          result?: Json | null
+          stage?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           created_at: string
@@ -94,7 +133,51 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_processing_functions_exist: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      get_processing_tasks: {
+        Args: {
+          limit_count?: number
+        }
+        Returns: {
+          created_at: string
+          error: string | null
+          id: string
+          message: string
+          progress: number
+          raw_response: Json | null
+          result: Json | null
+          stage: string
+          status: string
+          updated_at: string
+        }[]
+      }
+      upsert_processing_task: {
+        Args: {
+          p_id: string
+          p_message: string
+          p_stage: string
+          p_progress: number
+          p_status: string
+          p_error?: string
+          p_result?: Json
+          p_raw_response?: Json
+        }
+        Returns: {
+          created_at: string
+          error: string | null
+          id: string
+          message: string
+          progress: number
+          raw_response: Json | null
+          result: Json | null
+          stage: string
+          status: string
+          updated_at: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
