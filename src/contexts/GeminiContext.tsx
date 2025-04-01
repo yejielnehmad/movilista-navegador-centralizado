@@ -1,5 +1,4 @@
-
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { geminiClient, GeminiConnectionStatus } from '@/services/gemini';
 
 interface GeminiContextType {
@@ -23,27 +22,32 @@ export function GeminiProvider({ children }: { children: React.ReactNode }) {
     geminiClient.getLastError()
   );
 
+  const [didMount, setDidMount] = useState(false);
+
   useEffect(() => {
-    // Subscribe to connection status updates
+    setDidMount(true);
+    
     const unsubscribe = geminiClient.onConnectionStatusChange((status) => {
       setConnectionStatus(status);
       setLastError(geminiClient.getLastError());
     });
 
-    // Only check connection once on mount
     if (connectionStatus === GeminiConnectionStatus.DISCONNECTED) {
       geminiClient.checkConnection();
     }
 
-    // Unsubscribe when component unmounts
     return unsubscribe;
   }, [connectionStatus]);
+
+  const checkConnection = useCallback(async () => {
+    return geminiClient.checkConnection();
+  }, []);
 
   const value = {
     generateContent: geminiClient.generateContent.bind(geminiClient),
     connectionStatus,
     lastError,
-    checkConnection: geminiClient.checkConnection.bind(geminiClient),
+    checkConnection,
   };
 
   return <GeminiContext.Provider value={value}>{children}</GeminiContext.Provider>;

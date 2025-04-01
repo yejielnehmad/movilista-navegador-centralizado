@@ -33,6 +33,9 @@ export interface OrderItem {
   clientMatch?: Client | null;
   productMatch?: ProductWithVariants | null;
   variantMatch?: ProductVariant | null;
+  // New fields for enhanced matching
+  clientSuggestions?: Client[];
+  variantSuggestions?: ProductVariant[];
   status: 'valid' | 'warning' | 'error';
   issues: string[];
 }

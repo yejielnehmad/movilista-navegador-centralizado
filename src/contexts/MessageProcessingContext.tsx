@@ -27,6 +27,9 @@ interface MessageProcessingContextType {
   
   // Whether any task is currently processing
   isProcessing: boolean;
+  
+  // Register a new progress listener for app-wide updates
+  registerGlobalListener: (callback: (task: ProcessingProgress) => void) => () => void;
 }
 
 const MessageProcessingContext = createContext<MessageProcessingContextType | undefined>(undefined);
@@ -48,6 +51,22 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     queryFn: fetchProducts,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
+  
+  // On mount, check for any active tasks and restore their state
+  useEffect(() => {
+    // Get the current active task from the processor
+    const currentActiveTask = messageProcessor.getActiveTask();
+    if (currentActiveTask) {
+      setActiveTaskId(currentActiveTask.id);
+      setActiveTask(currentActiveTask);
+      
+      // Update processing state
+      setIsProcessing(
+        currentActiveTask.stage !== 'completed' && 
+        currentActiveTask.stage !== 'failed'
+      );
+    }
+  }, []);
 
   // Process a new message
   const processNewMessage = async (message: string): Promise<string> => {
@@ -85,6 +104,11 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     }
     return null;
   };
+  
+  // Register a global listener for progress updates (app-wide)
+  const registerGlobalListener = (callback: (task: ProcessingProgress) => void): () => void => {
+    return messageProcessor.addGlobalProgressListener(callback);
+  };
 
   // Monitor active task
   useEffect(() => {
@@ -116,6 +140,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
     getTaskResults,
     activeTask,
     isProcessing,
+    registerGlobalListener,
   };
 
   return (

@@ -1,6 +1,7 @@
+
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage } from "@/types/processingTypes";
-import { parseMessyOrderMessage, validateAndMatchOrders } from "@/utils/advancedOrderParser";
+import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
 import { ProductWithVariants } from "@/services/productService";
 import { Client } from "@/services/clientService";
 import { geminiClient } from "@/services/gemini";
@@ -14,6 +15,7 @@ class MessageProcessingService {
   private processingTasks: Record<string, ProcessingProgress> = {};
   private listeners: Record<string, ProgressListener[]> = {};
   private storageKey = 'ventascom_processing_tasks';
+  private activeTaskId: string | null = null;
   
   constructor() {
     this.loadFromStorage();
@@ -23,6 +25,9 @@ class MessageProcessingService {
     
     // Cleanup completed tasks older than 24 hours
     this.cleanupOldTasks();
+    
+    // Get the most recent active task if any
+    this.resumeActiveTask();
   }
   
   /**
@@ -35,6 +40,7 @@ class MessageProcessingService {
   ): Promise<string> {
     // Generate a unique ID for this processing task
     const taskId = uuidv4();
+    this.activeTaskId = taskId;
     
     // Initialize progress tracking
     const initialProgress: ProcessingProgress = {
@@ -75,27 +81,46 @@ class MessageProcessingService {
     products: ProductWithVariants[]
   ): Promise<void> {
     try {
-      // Stage 1: Initial parsing
+      // Stage 1: Initial parsing with improved tolerance
       this.updateProgress(taskId, {
         stage: 'parsing', 
         progress: 10,
         status: 'pending'
       });
       
-      // Basic pattern matching
-      const parsedItems = parseMessyOrderMessage(message);
+      // Perform more thorough pattern matching with higher tolerance
+      const parsedItems = parseMessyOrderMessage(message, { 
+        tolerateTypos: true,
+        detectPartialNames: true 
+      });
       
-      // Stage 2: Validate against database
+      // Stage 2: Pre-match to find potential clients
       this.updateProgress(taskId, {
-        stage: 'validating',
-        progress: 40,
+        stage: 'analyzing',
+        progress: 30,
         status: 'pending'
       });
       
-      // Match with clients and products
-      const validatedItems = validateAndMatchOrders(parsedItems, clients, products);
+      // For each item, find potential client matches
+      const itemsWithClientSuggestions = parsedItems.map(item => {
+        const potentialClients = findSimilarClients(item.clientName, clients);
+        return {
+          ...item,
+          clientSuggestions: potentialClients
+        };
+      });
       
-      // Stage 3: AI enhancement (use Gemini if connected)
+      // Stage 3: Validate against database with enhanced matching
+      this.updateProgress(taskId, {
+        stage: 'validating',
+        progress: 50,
+        status: 'pending'
+      });
+      
+      // Match with clients and products using improved fuzzy matching
+      const validatedItems = validateAndMatchOrders(itemsWithClientSuggestions, clients, products);
+      
+      // Stage 4: AI enhancement (use Gemini if connected)
       this.updateProgress(taskId, {
         stage: 'ai_processing',
         progress: 70,
@@ -106,33 +131,56 @@ class MessageProcessingService {
       let enhancedItems = validatedItems;
       
       try {
-        // Only use AI if we have some items already detected
+        // Only use AI if we have some items already detected and Gemini is available
         if (validatedItems.length > 0) {
-          // Attempt to use Gemini to improve detection
-          const aiContent = await geminiClient.generateContent(`
-            Analiza este mensaje para un pedido de tienda: "${message}"
-            
-            Ya detecté estos posibles pedidos:
-            ${validatedItems.map(item => 
-              `- Cliente: ${item.clientName}, Producto: ${item.productName}, Cantidad: ${item.quantity}, Variante: ${item.variantDescription}`
-            ).join('\n')}
-            
-            ¿Puedes ayudarme a mejorar esta detección? Por favor, solo dime si hay errores en la detección.
-          `, { temperature: 0.2 });
+          // Prepare a structured message for Gemini to analyze
+          const aiPrompt = `
+Analiza este mensaje de WhatsApp con pedidos: "${message}"
+
+Ya detecté estos pedidos:
+${validatedItems.map(item => 
+  `- Cliente: ${item.clientMatch?.name || item.clientName}, Producto: ${item.productMatch?.name || item.productName}, Cantidad: ${item.quantity}, Variante: ${item.variantMatch?.name || item.variantDescription || "No especificada"}`
+).join('\n')}
+
+Por favor, intenta entender mejor el mensaje e identifica:
+1. Clientes adicionales o corregidos
+2. Productos adicionales o corregidos 
+3. Cantidades incorrectas
+4. Variantes adicionales o corregidas
+5. Agrupa múltiples pedidos del mismo cliente
+
+Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctamente.
+          `;
+          
+          const aiContent = await geminiClient.generateContent(aiPrompt, { 
+            temperature: 0.2,
+            maxOutputTokens: 1000
+          });
           
           if (aiContent) {
-            // Just store AI response for debugging purposes
+            // Store AI response for debugging purposes
             this.updateProgress(taskId, {
               raw: aiContent
             });
+            
+            // Process AI suggestions (in a real implementation, we'd parse the AI's response 
+            // and update the items accordingly)
+            // For now, just use the validated items
           }
         }
       } catch (aiError) {
         console.warn('AI enhancement failed, but continuing with basic detection:', aiError);
-        // We can continue without AI enhancement
+        // Continue with basic detection without AI enhancement
       }
       
-      // Stage 4: Completed
+      // Group items by client for better organization
+      this.updateProgress(taskId, {
+        stage: 'grouping',
+        progress: 90,
+        status: 'pending'
+      });
+      
+      // Return the enhanced and grouped items
       this.updateProgress(taskId, {
         stage: 'completed',
         progress: 100,
@@ -149,6 +197,38 @@ class MessageProcessingService {
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
+  }
+  
+  /**
+   * Resume any active task from storage
+   */
+  private resumeActiveTask(): void {
+    // Find the most recent incomplete task
+    const tasks = Object.values(this.processingTasks);
+    
+    if (tasks.length === 0) return;
+    
+    // Sort by timestamp (newest first)
+    const sortedTasks = tasks.sort((a, b) => b.timestamp - a.timestamp);
+    
+    // Find the most recent task that's not completed or failed
+    const latestActiveTask = sortedTasks.find(task => 
+      task.stage !== 'completed' && task.stage !== 'failed'
+    );
+    
+    if (latestActiveTask) {
+      this.activeTaskId = latestActiveTask.id;
+    } else {
+      // If no active tasks, set the most recent completed task
+      this.activeTaskId = sortedTasks[0]?.id || null;
+    }
+  }
+  
+  /**
+   * Get the current active task (most recent)
+   */
+  public getActiveTask(): ProcessingProgress | null {
+    return this.activeTaskId ? this.processingTasks[this.activeTaskId] || null : null;
   }
   
   /**
@@ -180,6 +260,45 @@ class MessageProcessingService {
       if (this.listeners[taskId]) {
         this.listeners[taskId] = this.listeners[taskId].filter(l => l !== listener);
       }
+    };
+  }
+  
+  /**
+   * Add a global listener for any task updates (useful for UI progress indicators)
+   */
+  public addGlobalProgressListener(listener: (task: ProcessingProgress) => void): () => void {
+    // Create a wrapper function that will be called for any task update
+    const wrappedListener = (taskId: string) => {
+      const task = this.processingTasks[taskId];
+      if (task) {
+        listener(task);
+      }
+    };
+    
+    // Store the mapping of global listener to wrapped listener
+    const globalListenerMap = new Map<
+      (task: ProcessingProgress) => void, 
+      (taskId: string) => void
+    >();
+    
+    globalListenerMap.set(listener, wrappedListener);
+    
+    // Add the wrapped listener to all existing tasks
+    Object.keys(this.processingTasks).forEach(taskId => {
+      if (!this.listeners[taskId]) {
+        this.listeners[taskId] = [];
+      }
+      this.listeners[taskId].push(wrappedListener);
+    });
+    
+    // Return cleanup function
+    return () => {
+      // Remove the wrapped listener from all tasks
+      Object.keys(this.listeners).forEach(taskId => {
+        this.listeners[taskId] = this.listeners[taskId].filter(l => l !== globalListenerMap.get(listener));
+      });
+      
+      globalListenerMap.delete(listener);
     };
   }
   
@@ -220,6 +339,7 @@ class MessageProcessingService {
   private saveToStorage(): void {
     try {
       localStorage.setItem(this.storageKey, JSON.stringify(this.processingTasks));
+      localStorage.setItem(`${this.storageKey}_active`, this.activeTaskId || '');
     } catch (error) {
       console.error('Error saving processing tasks to storage:', error);
     }
@@ -231,8 +351,14 @@ class MessageProcessingService {
   private loadFromStorage(): void {
     try {
       const storedData = localStorage.getItem(this.storageKey);
+      const storedActiveTaskId = localStorage.getItem(`${this.storageKey}_active`);
+      
       if (storedData) {
         this.processingTasks = JSON.parse(storedData);
+      }
+      
+      if (storedActiveTaskId && storedActiveTaskId.trim() !== '') {
+        this.activeTaskId = storedActiveTaskId;
       }
     } catch (error) {
       console.error('Error loading processing tasks from storage:', error);

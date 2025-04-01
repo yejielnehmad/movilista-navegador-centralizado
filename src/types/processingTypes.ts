@@ -8,6 +8,7 @@ export type ProcessingStage =
   | 'fetching_data'
   | 'analyzing'
   | 'ai_processing'
+  | 'grouping'
   | 'validating'
   | 'completed'
   | 'failed';

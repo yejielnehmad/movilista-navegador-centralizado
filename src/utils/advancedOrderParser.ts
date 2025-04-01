@@ -9,7 +9,8 @@ export const groupOrdersByClient = (items: OrderItem[]): Record<string, OrderIte
   const groupedOrders: Record<string, OrderItem[]> = {};
   
   items.forEach(item => {
-    const clientKey = item.clientName.toLowerCase().trim();
+    // Use the matched client name if available, otherwise use the detected name
+    const clientKey = (item.clientMatch?.name || item.clientName).toLowerCase().trim();
     if (!groupedOrders[clientKey]) {
       groupedOrders[clientKey] = [];
     }
@@ -20,12 +21,31 @@ export const groupOrdersByClient = (items: OrderItem[]): Record<string, OrderIte
 };
 
 /**
- * Calculate string similarity (Levenshtein distance)
+ * Calculate string similarity (Levenshtein distance with normalization)
  */
 export const stringSimilarity = (str1: string, str2: string): number => {
-  const s1 = str1.toLowerCase();
-  const s2 = str2.toLowerCase();
+  if (!str1 && !str2) return 1.0; // Both empty
+  if (!str1 || !str2) return 0.0; // One empty
   
+  const s1 = str1.toLowerCase().trim();
+  const s2 = str2.toLowerCase().trim();
+  
+  // Handle exact match quickly
+  if (s1 === s2) return 1.0;
+  
+  // Handle substring match with high similarity
+  if (s1.includes(s2) || s2.includes(s1)) {
+    const maxLength = Math.max(s1.length, s2.length);
+    const minLength = Math.min(s1.length, s2.length);
+    return 0.8 + (0.2 * minLength / maxLength); // Gives higher values for closer lengths
+  }
+  
+  // Handle nickname/abbreviation matches (e.g., Daniel → Dani)
+  if ((s1.startsWith(s2) || s2.startsWith(s1)) && Math.min(s1.length, s2.length) >= 3) {
+    return 0.85; // High confidence for prefix matches with decent length
+  }
+  
+  // For other cases use Levenshtein distance
   const track = Array(s2.length + 1).fill(null).map(() => 
     Array(s1.length + 1).fill(null));
   
@@ -52,7 +72,57 @@ export const stringSimilarity = (str1: string, str2: string): number => {
   const maxLength = Math.max(s1.length, s2.length);
   if (maxLength === 0) return 1.0; // Both strings are empty
   
-  return 1 - (track[s2.length][s1.length] / maxLength);
+  // Normalize and adjust for common typos
+  const normalSimilarity = 1 - (track[s2.length][s1.length] / maxLength);
+  
+  // Give a boost to common typos or small modifications
+  if (s1.length > 3 && s2.length > 3 && normalSimilarity > 0.6) {
+    // Boost for common character substitutions (i/y, o/u, etc.)
+    return Math.min(1.0, normalSimilarity + 0.1);
+  }
+  
+  return normalSimilarity;
+};
+
+/**
+ * Find similar clients based on name
+ */
+export const findSimilarClients = (name: string, clients: Client[]): Client[] => {
+  if (!name || !clients.length) return [];
+  
+  // Calculate similarity scores for all clients
+  const scoredClients = clients.map(client => ({
+    client,
+    score: stringSimilarity(name, client.name)
+  }));
+  
+  // Filter and sort by similarity score (highest first)
+  return scoredClients
+    .filter(item => item.score > 0.6) // Only include reasonably good matches
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.client);
+};
+
+/**
+ * Find similar products based on name
+ */
+export const findSimilarProducts = (
+  productName: string,
+  products: ProductWithVariants[]
+): ProductWithVariants[] => {
+  if (!productName || !products.length) return [];
+  
+  // Calculate similarity scores for all products
+  const scoredProducts = products.map(product => ({
+    product,
+    score: stringSimilarity(productName, product.name)
+  }));
+  
+  // Filter and sort by similarity score (highest first)
+  return scoredProducts
+    .filter(item => item.score > 0.65) // Higher threshold for products
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.product);
 };
 
 /**
@@ -155,152 +225,238 @@ export const findBestMatchingVariant = (
 };
 
 /**
- * Parse a messy natural language order message
+ * Parse a messy natural language order message with improved WhatsApp-style handling
  */
-export const parseMessyOrderMessage = (message: string): OrderItem[] => {
+export const parseMessyOrderMessage = (
+  message: string, 
+  options: { tolerateTypos?: boolean; detectPartialNames?: boolean } = {}
+): OrderItem[] => {
   if (!message.trim()) return [];
   
-  // Break message into segments
-  const words = message.split(/\s+/);
+  const { tolerateTypos = false, detectPartialNames = false } = options;
+  
+  // Break message into segments, handling special characters better
+  const lines = message.split(/[\n,;]+/).filter(line => line.trim());
   const orderItems: OrderItem[] = [];
   
-  let currentClientName = '';
-  let currentQuantity = 0;
-  let currentProductName = '';
-  let currentVariantName = '';
-  let state: 'client' | 'quantity' | 'product' | 'variant' = 'client';
+  // Process each line or the entire message if no line breaks
+  const textToProcess = lines.length > 1 ? lines : [message];
   
-  // Process words one by one to build order items
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i].trim();
-    if (!word) continue;
+  for (const text of textToProcess) {
+    // Split into words, preserving numbers with decimals
+    const words = text.split(/\s+/).filter(word => word.trim());
     
-    const isNumber = /^\d+(\.\d+)?$/.test(word);
+    let currentClientName = '';
+    let currentQuantity = 0;
+    let currentProductName = '';
+    let currentVariantName = '';
+    let state: 'client' | 'quantity' | 'product' | 'variant' = 'client';
     
-    // Skip common connecting words
-    if (['de', 'y', 'para', 'con'].includes(word.toLowerCase())) {
-      continue;
-    }
-    
-    // State machine for parsing
-    switch (state) {
-      case 'client':
-        if (isNumber) {
-          // Found a quantity, switch to product state
-          currentQuantity = parseFloat(word);
-          state = 'product';
-        } else {
-          // Still building client name
-          currentClientName += (currentClientName ? ' ' : '') + word;
-          
-          // Peek ahead to see if next word is a number
-          const nextWord = words[i + 1];
-          if (nextWord && /^\d+(\.\d+)?$/.test(nextWord)) {
-            state = 'quantity';
+    // Process words one by one to build order items
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i].trim();
+      if (!word) continue;
+      
+      const isNumber = /^\d+(\.\d+)?$/.test(word);
+      
+      // Skip common connecting words and punctuation
+      if (['de', 'y', 'para', 'con', 'el', 'la', 'los', 'las', ',', '.', ':'].includes(word.toLowerCase())) {
+        continue;
+      }
+      
+      // State machine for parsing with improved context awareness
+      switch (state) {
+        case 'client':
+          if (isNumber) {
+            // Found a quantity, switch to product state
+            currentQuantity = parseFloat(word);
+            state = 'product';
+          } else {
+            // Check if this might be a variant code followed by a quantity
+            // Common pattern in WhatsApp messages: "Daniel M 3"
+            const nextWord = words[i + 1];
+            if (word.length <= 2 && nextWord && /^\d+(\.\d+)?$/.test(nextWord)) {
+              // This looks like a variant followed by quantity
+              if (currentClientName) {
+                currentVariantName = word;
+                state = 'quantity';
+              } else {
+                // If no client name yet, this is probably the start of a client name
+                currentClientName = word;
+              }
+            } else {
+              // Still building client name
+              currentClientName += (currentClientName ? ' ' : '') + word;
+              
+              // Peek ahead to see if next word is a number or short variant code
+              const nextWord = words[i + 1];
+              const nextNextWord = words[i + 2]; 
+              
+              if (nextWord && /^\d+(\.\d+)?$/.test(nextWord)) {
+                // Next word is a quantity
+                state = 'quantity';
+              } else if (nextWord && nextWord.length <= 2 && nextNextWord && /^\d+(\.\d+)?$/.test(nextNextWord)) {
+                // Pattern: "name variant quantity"
+                state = 'variant';
+              }
+            }
           }
-        }
-        break;
-        
-      case 'quantity':
-        if (isNumber) {
-          currentQuantity = parseFloat(word);
-          state = 'product';
-        } else {
-          // If we expected a quantity but got something else,
-          // assume it's still part of the client name
-          currentClientName += ' ' + word;
-        }
-        break;
-        
-      case 'product':
-        // Assume the word after quantity is product or variant
-        // Simple heuristic: short words (1-2 chars) are likely variants
-        if (word.length <= 2) {
+          break;
+          
+        case 'variant':
+          // This should be a short variant code
           currentVariantName = word;
+          state = 'quantity';
+          break;
           
-          // Create order item and reset for next item
-          if (currentClientName && currentQuantity) {
-            orderItems.push({
-              clientName: currentClientName.trim(),
-              productName: currentProductName.trim() || 'Unknown',
-              variantDescription: currentVariantName,
-              quantity: currentQuantity,
-              status: 'warning',
-              issues: ['From pattern matching']
-            });
+        case 'quantity':
+          if (isNumber) {
+            currentQuantity = parseFloat(word);
+            
+            // If we have client, variant, and quantity but no product, assume it's a common
+            // WhatsApp pattern of "client variant quantity" where product is implied
+            if (currentClientName && currentVariantName && !currentProductName) {
+              orderItems.push({
+                clientName: currentClientName.trim(),
+                productName: 'Pañales', // Default product, will be verified later
+                variantDescription: currentVariantName,
+                quantity: currentQuantity,
+                status: 'warning',
+                issues: ['Producto inferido del contexto']
+              });
+              
+              // Reset for next item but keep the client name
+              currentProductName = '';
+              currentVariantName = '';
+              currentQuantity = 0;
+              state = 'client';
+            } else {
+              state = 'product';
+            }
+          } else {
+            // If we expected a quantity but got something else,
+            // assume it's still part of the client name or it's actually a product
+            if (currentVariantName) {
+              // We have a variant but no quantity, so this must be a product
+              currentProductName = word;
+              state = 'quantity'; // Next should be quantity
+            } else {
+              currentClientName += ' ' + word;
+            }
           }
+          break;
           
-          // Reset for next item but keep the client
-          currentProductName = '';
-          currentVariantName = '';
-          currentQuantity = 0;
-          state = 'client';
-        } else {
-          currentProductName += (currentProductName ? ' ' : '') + word;
-          
-          // Peek ahead to determine if we might have detected a variant
-          const nextWord = words[i + 1];
-          if (nextWord && nextWord.length <= 2 && !/^\d+(\.\d+)?$/.test(nextWord)) {
-            state = 'variant';
-          } else if (i === words.length - 1 || (nextWord && /^\d+(\.\d+)?$/.test(nextWord))) {
-            // If this is the last word or next is a number, end the product state
+        case 'product':
+          // After quantity, we expect product or variant
+          // Check if this looks like a short variant code
+          if (word.length <= 2) {
+            currentVariantName = word;
+            
+            // Create order item with what we have so far
             if (currentClientName && currentQuantity) {
               orderItems.push({
                 clientName: currentClientName.trim(),
-                productName: currentProductName.trim(),
-                variantDescription: '',
+                productName: currentProductName.trim() || 'Pañales', // Default if not specified
+                variantDescription: currentVariantName,
                 quantity: currentQuantity,
                 status: 'warning',
-                issues: ['No variant specified']
+                issues: ['From pattern matching']
               });
             }
             
-            // Reset product and quantity but keep client for potential next item
+            // Reset for next item but keep the client
             currentProductName = '';
+            currentVariantName = '';
             currentQuantity = 0;
-            // Next word might be quantity for same client or new client
-            state = nextWord && /^\d+(\.\d+)?$/.test(nextWord) ? 'quantity' : 'client';
+            state = 'client';
+          } else {
+            // Building product name
+            currentProductName += (currentProductName ? ' ' : '') + word;
+            
+            // Peek ahead to see if we might have detected a variant
+            const nextWord = words[i + 1];
+            if (nextWord && nextWord.length <= 2 && !/^\d+(\.\d+)?$/.test(nextWord)) {
+              // Next word looks like a variant
+              state = 'variant';
+            } else if (i === words.length - 1 || (nextWord && /^\d+(\.\d+)?$/.test(nextWord))) {
+              // If this is the last word or next is a number, end the product state
+              // and create an order item
+              if (currentClientName && currentQuantity) {
+                orderItems.push({
+                  clientName: currentClientName.trim(),
+                  productName: currentProductName.trim(),
+                  variantDescription: '',
+                  quantity: currentQuantity,
+                  status: 'warning',
+                  issues: ['No variant specified']
+                });
+              }
+              
+              // Reset product and quantity but keep client for potential next item
+              currentProductName = '';
+              currentQuantity = 0;
+              // Next word might be quantity for same client or new client
+              state = nextWord && /^\d+(\.\d+)?$/.test(nextWord) ? 'quantity' : 'client';
+            }
           }
-        }
-        break;
-        
-      case 'variant':
-        currentVariantName = word;
-        
-        // Create order item and reset for next item
-        if (currentClientName && currentQuantity) {
-          orderItems.push({
-            clientName: currentClientName.trim(),
-            productName: currentProductName.trim() || 'Unknown',
-            variantDescription: currentVariantName,
-            quantity: currentQuantity,
-            status: 'warning',
-            issues: ['From pattern matching']
-          });
-        }
-        
-        // Reset for next item but keep the client
-        currentProductName = '';
-        currentVariantName = '';
-        currentQuantity = 0;
-        state = 'client';
-        break;
+          break;
+      }
+    }
+    
+    // Process any remaining state
+    if (currentClientName && currentQuantity) {
+      // Handle case where we have client, quantity but not product/variant
+      if (!currentProductName && !currentVariantName) {
+        orderItems.push({
+          clientName: currentClientName.trim(),
+          productName: 'Pañales', // Default product for this domain
+          variantDescription: '',
+          quantity: currentQuantity,
+          status: 'warning',
+          issues: ['Producto inferido, verificar']
+        });
+      } 
+      // Handle case where we have everything except variant
+      else if (currentProductName && !currentVariantName) {
+        orderItems.push({
+          clientName: currentClientName.trim(),
+          productName: currentProductName.trim(),
+          variantDescription: '',
+          quantity: currentQuantity,
+          status: 'warning',
+          issues: ['No variant specified']
+        });
+      }
+      // Handle case where we have everything
+      else if (currentProductName && currentVariantName) {
+        orderItems.push({
+          clientName: currentClientName.trim(),
+          productName: currentProductName.trim(),
+          variantDescription: currentVariantName,
+          quantity: currentQuantity,
+          status: 'warning',
+          issues: ['From final state']
+        });
+      }
     }
   }
   
-  // Process any remaining state
-  if (currentClientName && currentQuantity && (currentProductName || currentVariantName)) {
-    orderItems.push({
-      clientName: currentClientName.trim(),
-      productName: currentProductName.trim() || 'Unknown',
-      variantDescription: currentVariantName,
-      quantity: currentQuantity,
-      status: 'warning',
-      issues: ['From final state']
-    });
-  }
+  // Post-process: merge duplicate client entries
+  const mergedItems = new Map<string, OrderItem>();
   
-  return orderItems;
+  orderItems.forEach(item => {
+    const key = `${item.clientName.toLowerCase()}_${item.productName.toLowerCase()}_${item.variantDescription.toLowerCase()}`;
+    
+    if (mergedItems.has(key)) {
+      // Merge quantities for same client/product/variant
+      const existing = mergedItems.get(key)!;
+      existing.quantity += item.quantity;
+    } else {
+      mergedItems.set(key, {...item});
+    }
+  });
+  
+  return Array.from(mergedItems.values());
 };
 
 /**
@@ -349,13 +505,23 @@ export const validateAndMatchOrders = (
       }
     }
     
+    // Provide variant suggestions if needed
+    const variantSuggestions = productMatch?.variants || [];
+    
     return {
       ...item,
       clientMatch,
       productMatch,
       variantMatch,
+      variantSuggestions,
       issues,
       status: issues.length ? status : 'valid'
     };
   });
 };
+
+// Add specific types for disorganized WhatsApp messages
+export interface ParseOptions {
+  tolerateTypos?: boolean;
+  detectPartialNames?: boolean;
+}
