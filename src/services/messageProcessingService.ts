@@ -1,4 +1,3 @@
-
 import { geminiClient, GeminiConnectionStatus } from '@/services/gemini';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '@/lib/supabase';
@@ -151,7 +150,7 @@ class MessageProcessor {
           status: task.status,
           progress: task.progress,
           result: task.result ? JSON.stringify(task.result) : null,
-          error: task.error,
+          error: task.error || null,
         });
 
       if (error) {
