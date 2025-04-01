@@ -1,4 +1,3 @@
-
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -314,15 +313,18 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                 aiResponse.pedidos.forEach((pedido) => {
                   // Find matching client with proper type checking
                   const clientMatch = clients.find(c => 
-                    typeof c.id === 'string' && c.id === pedido.cliente_id
+                    c.id === pedido.cliente_id
                   ) || clients.find(c => 
-                    typeof c.name === 'string' && c.name.toLowerCase() === pedido.cliente.toLowerCase()
+                    c.name.toLowerCase() === pedido.cliente.toLowerCase()
                   );
                   
                   (pedido.items || []).forEach((item) => {
                     // Find matching product with proper type checking
-                    const productMatch = products.find(p => p.id === item.producto_id) ||
-                                        products.find(p => p.name.toLowerCase() === item.producto.toLowerCase());
+                    const productMatch = products.find(p => 
+                      p.id === item.producto_id
+                    ) || products.find(p => 
+                      p.name.toLowerCase() === item.producto.toLowerCase()
+                    );
                     
                     let variantMatch = null;
                     if (productMatch && item.variante_id) {
