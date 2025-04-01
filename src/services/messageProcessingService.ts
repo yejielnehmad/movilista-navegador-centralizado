@@ -1,33 +1,10 @@
-
-import { OrderItem, ProcessedOrder } from "@/types/orders";
-import { parseMessyOrderMessage, validateAndMatchOrders, groupOrdersByClient } from "@/utils/advancedOrderParser";
+import { OrderItem } from "@/types/orders";
+import { ProcessingProgress, ProcessingStage } from "@/types/processingTypes";
+import { parseMessyOrderMessage, validateAndMatchOrders } from "@/utils/advancedOrderParser";
 import { ProductWithVariants } from "@/services/productService";
 import { Client } from "@/services/clientService";
 import { geminiClient } from "@/services/gemini";
 import { v4 as uuidv4 } from 'uuid';
-
-// Process state types
-export type ProcessingStage = 
-  | 'not_started'
-  | 'parsing'
-  | 'fetching_data'
-  | 'analyzing'
-  | 'ai_processing'
-  | 'validating'
-  | 'completed'
-  | 'failed';
-
-export interface ProcessingProgress {
-  id: string;
-  message: string;
-  stage: ProcessingStage;
-  progress: number; // 0-100
-  status: 'pending' | 'success' | 'error';
-  error?: string;
-  result?: OrderItem[];
-  raw?: any;
-  timestamp: number;
-}
 
 // Define listeners interface
 type ProgressListener = (progress: ProcessingProgress) => void;
