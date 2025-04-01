@@ -292,11 +292,11 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                 // Transform the AI's structured response back into OrderItems
                 const aiProcessedItems: OrderItem[] = [];
                 
-                aiResponse.pedidos.forEach(pedido => {
+                aiResponse.pedidos.forEach((pedido: any) => {
                   const clientMatch = clients.find(c => c.id === pedido.cliente_id) || 
                                       clients.find(c => c.name.toLowerCase() === pedido.cliente.toLowerCase());
                   
-                  (pedido.items || []).forEach(item => {
+                  (pedido.items || []).forEach((item: any) => {
                     const productMatch = products.find(p => p.id === item.producto_id) ||
                                          products.find(p => p.name.toLowerCase() === item.producto.toLowerCase());
                     
