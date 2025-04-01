@@ -304,7 +304,7 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                 pedidos: AIPedido[];
               }
               
-              // Parse with type assertion to the expected interface
+              // Parse with proper type assertion to ensure it's the expected structure
               const aiResponse = JSON.parse(aiContent) as AIResponse;
               
               if (aiResponse.pedidos && Array.isArray(aiResponse.pedidos)) {
