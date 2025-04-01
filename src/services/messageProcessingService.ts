@@ -151,6 +151,7 @@ class MessageProcessor {
           progress: task.progress,
           result: task.result ? JSON.stringify(task.result) : null,
           error: task.error || null,
+          raw_response: task.raw_response ? JSON.stringify(task.raw_response) : null,
         });
 
       if (error) {
