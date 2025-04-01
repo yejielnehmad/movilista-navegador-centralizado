@@ -311,27 +311,27 @@ Responde SOLO con el JSON, sin texto introductorio ni conclusión.
                 const aiProcessedItems: OrderItem[] = [];
                 
                 aiResponse.pedidos.forEach((pedido) => {
-                  // Find matching client with proper type checking
+                  // Find matching client using type-safe comparisons
                   const clientMatch = clients.find(c => 
-                    c.id === pedido.cliente_id
+                    c.id === pedido.cliente_id as string
                   ) || clients.find(c => 
                     c.name.toLowerCase() === pedido.cliente.toLowerCase()
                   );
                   
                   (pedido.items || []).forEach((item) => {
-                    // Find matching product with proper type checking
+                    // Find matching product using type-safe comparisons
                     const productMatch = products.find(p => 
-                      p.id === item.producto_id
+                      p.id === item.producto_id as string
                     ) || products.find(p => 
                       p.name.toLowerCase() === item.producto.toLowerCase()
                     );
                     
                     let variantMatch = null;
                     if (productMatch && item.variante_id) {
-                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id);
+                      variantMatch = productMatch.variants.find(v => v.id === item.variante_id as string);
                     } else if (productMatch && item.variante) {
                       variantMatch = productMatch.variants.find(v => 
-                        v.name.toLowerCase() === item.variante.toLowerCase()
+                        v.name.toLowerCase() === item.variante!.toLowerCase()
                       );
                     }
                     
