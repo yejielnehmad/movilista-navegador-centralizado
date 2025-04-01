@@ -1,6 +1,5 @@
 
-import * as React from 'react';
-import { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { messageProcessor } from '@/services/messageProcessingService';
 import type { ProcessingProgress } from '@/types/processingTypes';
 import { OrderItem } from '@/types/orders';
