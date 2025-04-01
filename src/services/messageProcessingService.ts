@@ -1,4 +1,3 @@
-
 import { OrderItem } from "@/types/orders";
 import { ProcessingProgress, ProcessingStage, ProgressListener, ProcessingTaskRecord } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
@@ -473,7 +472,7 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
         return;
       }
       
-      if (!data || data.length === 0) return;
+      if (!data || !Array.isArray(data) || data.length === 0) return;
       
       // Convert to our internal format
       const loadedTasks: Record<string, ProcessingProgress> = {};

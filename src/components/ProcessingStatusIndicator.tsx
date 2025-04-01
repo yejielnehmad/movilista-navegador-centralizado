@@ -28,7 +28,7 @@ const ProcessingStatusIndicator: React.FC = () => {
       <Badge variant="secondary" className="px-3 py-2 flex items-center gap-2">
         {currentTask.status === 'error' ? (
           <AlertTriangle className="h-4 w-4 text-destructive" />
-        ) : currentTask.stage === 'completed' ? (
+        ) : (currentTask.stage as ProcessingStage) === 'completed' ? (
           <CheckCircle className="h-4 w-4 text-success" />
         ) : (
           <Loader2 className="h-4 w-4 animate-spin" />
