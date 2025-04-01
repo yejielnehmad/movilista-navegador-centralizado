@@ -17,6 +17,7 @@ const ProcessingStatusIndicator: React.FC = () => {
     return unsubscribe;
   }, [registerGlobalListener]);
   
+  // If there's no task, or if the task is in one of these completed states, don't show the indicator
   if (!currentTask || 
       currentTask.stage === 'completed' || 
       currentTask.stage === 'failed') {
@@ -28,7 +29,7 @@ const ProcessingStatusIndicator: React.FC = () => {
       <Badge variant="secondary" className="px-3 py-2 flex items-center gap-2">
         {currentTask.status === 'error' ? (
           <AlertTriangle className="h-4 w-4 text-destructive" />
-        ) : currentTask.stage === 'completed' ? (
+        ) : (currentTask.stage as string) === 'completed' ? (
           <CheckCircle className="h-4 w-4 text-success" />
         ) : (
           <Loader2 className="h-4 w-4 animate-spin" />
