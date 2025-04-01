@@ -24,3 +24,5 @@ export interface ProcessingProgress {
   raw?: any;
   timestamp: number;
 }
+
+export type ProgressListener = (progress: ProcessingProgress) => void;

@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { geminiClient, GeminiConnectionStatus } from '@/services/gemini';
 
@@ -22,11 +23,7 @@ export function GeminiProvider({ children }: { children: React.ReactNode }) {
     geminiClient.getLastError()
   );
 
-  const [didMount, setDidMount] = useState(false);
-
   useEffect(() => {
-    setDidMount(true);
-    
     const unsubscribe = geminiClient.onConnectionStatusChange((status) => {
       setConnectionStatus(status);
       setLastError(geminiClient.getLastError());
