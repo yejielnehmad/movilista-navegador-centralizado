@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { messageProcessor } from '@/services/messageProcessingService';
-import type { ProcessingProgress } from '@/types/processingTypes';
+import type { ProcessingProgress, ProgressListener } from '@/types/processingTypes';
 import { OrderItem } from '@/types/orders';
 import { useQuery } from '@tanstack/react-query';
 import { fetchClients } from '@/services/clientService';
@@ -29,7 +29,7 @@ interface MessageProcessingContextType {
   isProcessing: boolean;
   
   // Register a new progress listener for app-wide updates
-  registerGlobalListener: (callback: (task: ProcessingProgress) => void) => () => void;
+  registerGlobalListener: (callback: ProgressListener) => () => void;
 }
 
 const MessageProcessingContext = createContext<MessageProcessingContextType | undefined>(undefined);
@@ -106,7 +106,7 @@ export function MessageProcessingProvider({ children }: { children: React.ReactN
   };
   
   // Register a global listener for progress updates (app-wide)
-  const registerGlobalListener = (callback: (task: ProcessingProgress) => void): () => void => {
+  const registerGlobalListener = (callback: ProgressListener): () => void => {
     return messageProcessor.addGlobalProgressListener(callback);
   };
 

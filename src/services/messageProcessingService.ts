@@ -1,14 +1,10 @@
-
 import { OrderItem } from "@/types/orders";
-import { ProcessingProgress, ProcessingStage } from "@/types/processingTypes";
+import { ProcessingProgress, ProcessingStage, ProgressListener } from "@/types/processingTypes";
 import { parseMessyOrderMessage, validateAndMatchOrders, findSimilarClients, findSimilarProducts } from "@/utils/advancedOrderParser";
 import { ProductWithVariants } from "@/services/productService";
 import { Client } from "@/services/clientService";
 import { geminiClient } from "@/services/gemini";
 import { v4 as uuidv4 } from 'uuid';
-
-// Define listeners interface
-type ProgressListener = (progress: ProcessingProgress) => void;
 
 // Create a singleton class for message processing
 class MessageProcessingService {
@@ -266,20 +262,14 @@ Responde solo con los cambios sugeridos, no repitas lo que ya detecté correctam
   /**
    * Add a global listener for any task updates (useful for UI progress indicators)
    */
-  public addGlobalProgressListener(listener: (task: ProcessingProgress) => void): () => void {
+  public addGlobalProgressListener(listener: ProgressListener): () => void {
     // Create a wrapper function that will be called for any task update
-    const wrappedListener = (taskId: string) => {
-      const task = this.processingTasks[taskId];
-      if (task) {
-        listener(task);
-      }
+    const wrappedListener = (progress: ProcessingProgress) => {
+      listener(progress);
     };
     
     // Store the mapping of global listener to wrapped listener
-    const globalListenerMap = new Map<
-      (task: ProcessingProgress) => void, 
-      (taskId: string) => void
-    >();
+    const globalListenerMap = new Map<ProgressListener, ProgressListener>();
     
     globalListenerMap.set(listener, wrappedListener);
     
