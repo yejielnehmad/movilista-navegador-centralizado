@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ProcessingProgress, ProcessingStage } from '@/services/messageProcessingService';
+import { ProcessingProgress, ProcessingStage } from '@/types/processingTypes';
 import { Progress } from '@/components/ui/progress';
 import { Loader2, AlertCircle, Check, Bot } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
